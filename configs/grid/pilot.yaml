@@ -11,6 +11,7 @@
 name: pilot
 overrides:
   model.size: m
+  train.lr: 3.0e-4   # from lr_sweep 2026-10-16 (best val loss at m)
   train.tokens: 100_000_000
   train.schedule: const
   eval.every_tokens: 5_000_000

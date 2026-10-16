@@ -2,17 +2,22 @@
 # abilities we want as endpoints (induction, BLiMP terms, long-range gain) actually emerge, and to measure
 # seed SD and the Fisher-trace curve. Pythia-14M shows induction only after ~150-300 tokens/param, so a
 # 100M-token run of a 14M model (7 tok/param) may never show it. 1 epoch of BabyLM-100M = ~150M tokens.
-# Set train.lr from lr_sweep first.
-# Times (M3 Max): s 150M 24 min, s 600M 1.6 h, m 150M 1 h, m 600M 3.8 h, m 1.4B 9 h. Total ~22 h on one machine.
+# train.lr per size from lr_sweep (2026-10-16, criterion = best final val loss at 150M tokens, constant LR):
+#   m: 3e-4 (3.625) < 1e-3 (3.660) < 3e-3 (3.968);  s: 1e-3 (3.765) < 3e-4 (3.815) < 3e-3 (3.976).
+# Measured (M3 Max): s 150M 25 min, m 150M 65 min; projected s 600M 1.7 h, m 600M 4.3 h, m 1.4B 10 h. ~25 h total.
 name: baselines
 overrides:
   train.schedule: const
-  train.lr: 1.0e-3
   eval.every_tokens: 25_000_000
   checkpoint.every_tokens: 100_000_000
+  model.size: m
+  train.lr: 3.0e-4
 axes:
-  model.size: [s, m]
   train.tokens: [150_000_000, 600_000_000]
   train.seed: [0, 1]
 extra_runs:
-  - {model.size: m, train.tokens: 1_400_000_000, train.seed: 0, eval.every_tokens: 50_000_000}
+  - {model.size: m, train.lr: 3.0e-4, train.tokens: 1_400_000_000, train.seed: 0, eval.every_tokens: 50_000_000}
+  - {model.size: s, train.lr: 1.0e-3, train.tokens: 150_000_000, train.seed: 0}
+  - {model.size: s, train.lr: 1.0e-3, train.tokens: 150_000_000, train.seed: 1}
+  - {model.size: s, train.lr: 1.0e-3, train.tokens: 600_000_000, train.seed: 0}
+  - {model.size: s, train.lr: 1.0e-3, train.tokens: 600_000_000, train.seed: 1}
