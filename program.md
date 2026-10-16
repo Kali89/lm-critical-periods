@@ -28,6 +28,25 @@ which window hurts which ability. Background and design rationale: README.md.
    `tools/pythia_probe.py` landmarks for comparison; `tools/export_nanogpt.py` for a CUDA rerun by others.
 9. **Write-up** — notebooks/; figures follow the dataviz conventions in ~/.claude/CLAUDE.md.
 
+## Target venue (decided 2026-10-16): TACL
+
+Staged: arXiv preprint once the pilot and controls are done; BabyLM 2027 workshop paper as the first archival
+outing; the full TACL submission with everything below. No concurrent submission of the same manuscript to
+two ACL venues. TACL reviewers come from the Constantinescu et al. (2025) community, so the paper is judged
+on linguistic depth and correctness, not on scale alone. Priorities this sets *after* the pilot (phases 1-5
+are unchanged by the venue):
+
+1. Linguistic endpoints first: BLiMP by phenomenon (with item-level CIs), long-range gain, induction; each
+   deficit reported as ability-specific, not as a single loss number.
+2. Seeds before sizes: the seed count comes from the power table and is the same in every cell.
+3. The prior-null replication (phase 7, English then Dutch) is a required section, not an appendix.
+4. One scale point above the laptop ladder (size l or larger on a rented GPU via `tools/export_nanogpt.py`)
+   to answer the standard "does this hold beyond toy scale" objection.
+5. Mechanism (phase 8) supports the story but is not the headline; LLC and induction-head traces go in as
+   evidence for *why* a window is sensitive.
+6. Disclosure: ARR/TACL policy requires stating LLM assistance. Harness code is agent-written and says so in
+   the README; the paper prose is Matthew's.
+
 ## Rules of control (these are hard rules for agents)
 
 - **Never start a training run unless Matthew asked for it in this session.** "Set up", "prepare", "check"

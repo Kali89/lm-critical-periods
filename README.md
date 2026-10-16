@@ -21,7 +21,7 @@ Pre-registration template: `docs/preregistration.md`.
 | Piece | Where | Notes |
 |---|---|---|
 | Models | `lmcp/model.py` | pre-norm GPT, RoPE, SwiGLU, tied embeddings (= Llama layout). xs 1.5M, s 5M, m 14M, l 30M params. Trained from scratch; no pretrained weights |
-| Data | `bin/lmcp prepare-all`, `lmcp/data.py` | BabyLM-100M (CLIMB mirror, lowercased), 138M tokens; dev 13M; BLiMP 67 paradigms; Dutch Wikipedia subsample as L2 (`docs/data-babylm-nl.md`); CIFAR-10 for the vision control |
+| Data | `bin/lmcp prepare-all`, `lmcp/data.py` | BabyLM-100M (CLIMB mirror, lowercased), 138M tokens; dev 13M; BLiMP 67 paradigms; official BabyLM Dutch (`babylm_nld`) as L2 (`docs/data-babylm-nl.md`); CIFAR-10 for the vision control |
 | Streams | `lmcp/tok.py` | byte-level BPE (vocab 8192) uint16 streams with a document index; one stream per corruption and dose |
 | Document order | `lmcp/train.py` `DocReader` | per-seed permutation (`data.doc_order_seed`), saved per run; readers walk shards of it; clean and corrupted streams switch on the same document |
 | Corruptions | `lmcp/corrupt.py`, `lmcp/train.py` | text: `shuffle_sentence`, `shuffle_doc_sentences`, `shuffle_window k`, `char_noise p`; training-time: `short_context block`, `label_noise p`, `vocab_permute` (predicted null). `corruption.window` = fraction range of the token budget; `corruption.intensity` = dose |
@@ -41,10 +41,11 @@ Pre-registration template: `docs/preregistration.md`.
     bin/lmcp tok encode --kind shuffle_sentence --intensity 0.5
     bin/lmcp tok encode --kind shuffle_sentence --intensity 0.25
     .venv/bin/python -m lmcp.vision.data                   # CIFAR-10 for the positive control
-    bin/lmcp data download --corpus babylm_nl && bin/lmcp data prepare --corpus babylm_nl   # Dutch L2 (~5 min)
-    bin/lmcp tok train --corpora babylm100m_clean,babylm_nl_clean --name en_nl_v8192
-    bin/lmcp tok encode --name en_nl_v8192 --split both
-    bin/lmcp tok encode --name en_nl_v8192 --corpus babylm_nl --split both --as babylm_nl
+    hf auth login   # needs access to BabyLM-community/babylm-nld (gated)
+    bin/lmcp data download --corpus babylm_nld && bin/lmcp data prepare --corpus babylm_nld   # official BabyLM Dutch L2
+    bin/lmcp tok train --corpora babylm100m_clean,babylm_nld_clean --name en_nld_v8192
+    bin/lmcp tok encode --name en_nld_v8192 --split both
+    bin/lmcp tok encode --name en_nld_v8192 --corpus babylm_nld --split both --as babylm_nld
     uv venv --python 3.12 .venv-torch && uv pip install --python .venv-torch/bin/python torch transformers transformer_lens devinterp "zarr<3.2" safetensors datasets
     bin/lmcp doctor
 
