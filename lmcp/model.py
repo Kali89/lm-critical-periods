@@ -57,11 +57,15 @@ class GPT(nn.Module):
         self.nf = nn.RMSNorm(d_model)
         self.n_layer = n_layer
 
-    def __call__(self, idx, mask):
+    def hidden(self, idx, mask):
+        """Final normalised hidden states (B, T, d): __call__ without the unembedding."""
         x = self.wte(idx)
         for b in self.blocks:
             x = b(x, mask)
-        return self.wte.as_linear(self.nf(x))
+        return self.nf(x)
+
+    def __call__(self, idx, mask):
+        return self.wte.as_linear(self.hidden(idx, mask))
 
 
 def init_gpt2_style(model, std=0.02):

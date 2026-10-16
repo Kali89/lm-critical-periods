@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import DATA, QUEUE, ROOT, RUNS
+from . import DATA, QUEUE, RESULTS, ROOT, RUNS
 from .config import TEXT_KINDS, load_config, parse_value, run_name, stream_dir
 
 
@@ -69,13 +69,17 @@ def cmd_data(a):
 def cmd_tok(a):
     from . import tok
     cd = DATA / "corpora" / f"{a.corpus}_{a.variant}"
-    out = DATA / "tok" / f"{a.corpus}_{a.variant}_v{a.vocab}"
+    out = DATA / "tok" / (a.name or f"{a.corpus}_{a.variant}_v{a.vocab}")
     if a.what == "train":
-        tk = tok.train_tokenizer(cd / "train.docs.jsonl", out, a.vocab)
-        print(f"trained vocab {tk.get_vocab_size()} -> {out}")
+        corpora = [DATA / "corpora" / c / "train.docs.jsonl" for c in a.corpora.split(",")] if a.corpora else [cd / "train.docs.jsonl"]
+        tk = tok.train_tokenizer(corpora, out, a.vocab)
+        print(f"trained vocab {tk.get_vocab_size()} on {[str(c) for c in corpora]} -> {out}")
     elif a.what == "encode":
         tk = tok.load_tokenizer(out)
-        print(tok.encode_stream(tk, cd / f"{a.split}.docs.jsonl", out, split=a.split, kind=a.kind, param=a.param))
+        splits = ["train", "val"] if a.split == "both" else [a.split]
+        for sp in splits:
+            print(tok.encode_stream(tk, cd / f"{sp}.docs.jsonl", out, split=sp, kind=a.kind, param=a.param,
+                                    intensity=a.intensity, name=getattr(a, "as_name", None)))
 
 
 def cmd_prepare_all(a):
@@ -87,6 +91,7 @@ def cmd_prepare_all(a):
     tk = tok.train_tokenizer(cd / "train.docs.jsonl", out, a.vocab)
     print(tok.encode_stream(tk, cd / "val.docs.jsonl", out, split="val"))
     print(tok.encode_stream(tk, cd / "train.docs.jsonl", out, split="train"))
+    print(tok.encode_stream(tk, cd / "train.docs.jsonl", out, split="train", kind="shuffle_sentence"))
 
 
 def cmd_streams(a):
@@ -94,7 +99,10 @@ def cmd_streams(a):
         print(t.name)
         for m in sorted(t.glob("*.meta.json")):
             j = json.loads(m.read_text())
-            print(f"  {j['split']}.{j['stream']:28s} {j['n_tokens']/1e6:8.1f}M tokens  {j['n_docs']} docs")
+            if "split" not in j:      # tokenizer.meta.json
+                continue
+            idx = (t / f"{j['split']}.{j['stream']}.idx.npy").exists()
+            print(f"  {j['split']}.{j['stream']:28s} {j['n_tokens']/1e6:8.1f}M tokens  {j['n_docs']:7d} docs  {'indexed' if idx else 'NO INDEX (re-encode)'}")
 
 
 def cmd_run(a):
@@ -144,6 +152,44 @@ def cmd_collect(a):
     print(f"collected {len(rows)} runs -> results/results.jsonl, results/curves.jsonl")
 
 
+def cmd_analyze(a):
+    import pandas as pd
+    from . import analysis
+    from .runs import collect
+    collect()
+    res, curves = analysis.load_results(RESULTS)
+    pd.set_option("display.width", 200, "display.max_columns", 40, "display.float_format", "{:.4f}".format)
+    if a.what == "baseline":
+        summ = analysis.baseline_summary(res)
+        print(summ.to_string(index=False) if hasattr(summ, "to_string") else summ)
+        metric, why = analysis.propose_primary(summ)
+        print(f"\nproposed primary endpoint: {metric}\n  {why}")
+    elif a.what == "landmarks":
+        print(analysis.landmarks(curves).to_string(index=False))
+    elif a.what == "mixed":
+        for m in (a.metric or ["blimp_acc", "induction_acc", "long_range_gain", "val_loss"]):
+            out = analysis.mixed_model(res, m)
+            print(f"\n== {m}  [{out.attrs.get('method')}] {out.attrs.get('warning') or ''}")
+            print(out.to_string(index=False))
+    elif a.what == "dose":
+        print(analysis.dose_response(res, a.metric[0] if a.metric else "blimp_acc", a.kind, a.window))
+    elif a.what == "window":
+        print(analysis.predict_window_from_plasticity(curves, results_df=res))
+
+
+def cmd_prereg(a):
+    from . import analysis
+    from .runs import collect
+    collect()
+    d = analysis.prereg_numbers(RESULTS)
+    text = analysis.render_prereg_numbers(d)
+    print(text)
+    if a.write:
+        out = ROOT / "docs" / "prereg-numbers.md"
+        out.write_text(text)
+        print(f"\nwritten to {out}; paste into docs/preregistration.md 'Filled values' and commit")
+
+
 def cmd_report(a):
     from .runs import report
     print(report(tuple(a.metric) if a.metric else ("val_loss", "blimp_acc", "induction_acc", "long_range_gain")))
@@ -154,7 +200,7 @@ def main():
     sp = p.add_subparsers(dest="cmd", required=True)
     sp.add_parser("doctor").set_defaults(f=cmd_doctor)
     d = sp.add_parser("data"); d.add_argument("what", choices=["download", "prepare"]); d.add_argument("--corpus", default="babylm100m"); d.add_argument("--variant", default="clean"); d.add_argument("--max-train-docs", type=int); d.set_defaults(f=cmd_data)
-    t = sp.add_parser("tok"); t.add_argument("what", choices=["train", "encode"]); t.add_argument("--corpus", default="babylm100m"); t.add_argument("--variant", default="clean"); t.add_argument("--vocab", type=int, default=8192); t.add_argument("--split", default="train"); t.add_argument("--kind", default="clean"); t.add_argument("--param", type=parse_value); t.set_defaults(f=cmd_tok)
+    t = sp.add_parser("tok"); t.add_argument("what", choices=["train", "encode"]); t.add_argument("--corpus", default="babylm100m"); t.add_argument("--variant", default="clean"); t.add_argument("--vocab", type=int, default=8192); t.add_argument("--name", help="tokenizer/stream dir name under data/tok (default <corpus>_<variant>_v<vocab>)"); t.add_argument("--corpora", help="train: comma-separated corpus dirs under data/corpora to train a shared tokenizer on"); t.add_argument("--split", default="train", choices=["train", "val", "both"]); t.add_argument("--kind", default="clean"); t.add_argument("--param", type=parse_value); t.add_argument("--intensity", type=float, default=1.0); t.add_argument("--as", dest="as_name", help="encode: stream name to write (e.g. babylm_nl for a second-language corpus)"); t.set_defaults(f=cmd_tok)
     pa = sp.add_parser("prepare-all"); pa.add_argument("--corpus", default="babylm100m"); pa.add_argument("--variant", default="clean"); pa.add_argument("--vocab", type=int, default=8192); pa.set_defaults(f=cmd_prepare_all)
     sp.add_parser("streams").set_defaults(f=cmd_streams)
     r = sp.add_parser("run"); r.add_argument("config", nargs="?"); r.add_argument("--set", action="append", metavar="key=value"); r.add_argument("--name"); r.add_argument("--dry", action="store_true"); r.add_argument("--show", action="store_true"); r.add_argument("--no-resume", action="store_true"); r.set_defaults(f=cmd_run)
@@ -162,6 +208,8 @@ def main():
     q = sp.add_parser("queue"); q.add_argument("what", choices=["status", "next", "requeue-failed", "clear"]); q.set_defaults(f=cmd_queue)
     sp.add_parser("collect").set_defaults(f=cmd_collect)
     rp = sp.add_parser("report"); rp.add_argument("--metric", action="append"); rp.set_defaults(f=cmd_report)
+    an = sp.add_parser("analyze", help="baseline | landmarks | mixed | dose | window"); an.add_argument("what", choices=["baseline", "landmarks", "mixed", "dose", "window"]); an.add_argument("--metric", action="append"); an.add_argument("--kind", default="shuffle_sentence"); an.add_argument("--window", type=parse_value, default=[0.0, 0.5]); an.set_defaults(f=cmd_analyze)
+    pr = sp.add_parser("prereg", help="numbers for docs/preregistration.md from the clean baselines"); pr.add_argument("--write", action="store_true"); pr.set_defaults(f=cmd_prereg)
     a = p.parse_args()
     sys.exit(a.f(a) or 0)
 

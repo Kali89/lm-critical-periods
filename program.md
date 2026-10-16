@@ -8,16 +8,25 @@ Whether corrupting a language model's *input structure* during an early window o
 permanent, ability-specific deficit that later clean training cannot repair (a "critical period"), and if so,
 which window hurts which ability. Background and design rationale: README.md.
 
-## Phases and gates
+## Phases and gates (each gate must pass before the next phase is queued)
 
-1. **Setup** — `bin/lmcp doctor` is all green; the smoke grid completes; results/results.jsonl has two rows.
-2. **Baselines** — clean runs at the pilot scale with 3 seeds. Inspect train_curve.jsonl and metrics.jsonl
-   to locate developmental landmarks (induction jump, BLiMP rise). Decide window boundaries from these.
-3. **Pilot grid** (`configs/grid/pilot.yaml`) — commit the grid file *before* running it. That commit is the
-   pre-registration. Do not edit a grid file after any of its runs have started; make a new grid.
-4. **Sliding-window grid** — only if the pilot shows a deficit that survives the matched-token control.
-5. **Controls** — learning-rate restart arm, extended-recovery arm (2x tokens), then scale (`l`, then GPU).
-6. **Analysis and write-up** — notebooks/ ; figures follow the dataviz conventions in ~/.claude/CLAUDE.md.
+1. **Setup** — `bin/lmcp doctor` all green; `configs/grid/smoke.yaml` completes through the queue.
+2. **Instrument check (positive control)** — `configs/grid/vision_control.yaml`: CIFAR-10 ResNet-18 blur must
+   reproduce Achille et al. (deficit for early blur, none for label permutation). If it does not, stop: the
+   harness cannot be trusted to detect a sensitive period and no LM result is reported either way.
+3. **Clean baselines** — `configs/grid/baselines.yaml` (3 seeds, size m). Then `bin/lmcp analyze baseline`,
+   `bin/lmcp analyze landmarks`, `bin/lmcp prereg --write`.
+4. **Pre-registration** — fill `docs/preregistration.md` from the prereg output: primary endpoint, seed count
+   from the power table, predicted window from the Fisher-trace curve. Commit. Record the hash on OSF.
+   The pilot grid is edited to the registered seed count and windows and committed in the same commit.
+5. **Pilot grid** (`configs/grid/pilot.yaml`) — includes the matched-token, late-window, vocabulary-permutation
+   and extended-recovery controls and two dose levels. Analyse with `bin/lmcp analyze mixed` / `dose`.
+6. **Sliding-window grid** — only if the pilot deficit survives the controls.
+7. **Prior-null replication** — `configs/grid/constantinescu.yaml` (English then Dutch) shows the harness
+   reproduces the TACL 2025 null with the same code.
+8. **Mechanism and anchors** — `tools/export_tl.py` + `induction_heads.py` + `llc.py` on saved checkpoints;
+   `tools/pythia_probe.py` landmarks for comparison; `tools/export_nanogpt.py` for a CUDA rerun by others.
+9. **Write-up** — notebooks/; figures follow the dataviz conventions in ~/.claude/CLAUDE.md.
 
 ## Rules of control (these are hard rules for agents)
 
@@ -58,14 +67,35 @@ Nothing in the training loop calls a model; the loop is plain Python and costs n
 ## Everyday commands
 
     bin/lmcp doctor                      health check: env, data, queue, git
-    bin/lmcp streams                     which token streams exist
-    bin/lmcp tok encode --kind char_noise --param 0.1     build a corrupted stream
+    bin/lmcp streams                     which token streams exist (and whether they carry a document index)
+    bin/lmcp tok encode --kind shuffle_sentence --intensity 0.5     build a corrupted stream (dose 0.5)
+    bin/lmcp tok train --corpora babylm100m_clean,babylm_nl_clean --name en_nl_v8192   shared bilingual tokenizer
+    bin/lmcp tok encode --name en_nl_v8192 --corpus babylm_nl --split both --as babylm_nl   second-language streams
     bin/lmcp grid configs/grid/pilot.yaml --dry           show what a grid would queue
     bin/lmcp grid configs/grid/pilot.yaml                 queue it
     bin/lmcp queue status
-    scripts/run-queue.sh               drain the queue (MAX_RUNS=n to cap)
-    bin/lmcp collect && bin/lmcp report    results/results.jsonl, results/curves.jsonl, summary table
+    scripts/run-queue.sh                 drain the queue (MAX_RUNS=n to cap)
+    bin/lmcp collect && bin/lmcp report  results/results.jsonl, results/curves.jsonl, mean/sd table
+    bin/lmcp analyze baseline|landmarks|mixed|dose|window   the real analysis (mixed model, CIs, dose, Fisher window)
+    bin/lmcp prereg --write              numbers for docs/preregistration.md
+    .venv-torch/bin/python tools/export_tl.py runs/<name> --check      export a checkpoint, verify logits
+    .venv-torch/bin/python tools/induction_heads.py exports/tl/<name>
+    .venv-torch/bin/python tools/llc.py exports/tl/<name> --data data/tok/babylm100m_clean_v8192/val.clean.bin
+    .venv-torch/bin/python tools/pythia_probe.py --model pythia-14m --steps log
     bin/lmcp run --set model.size=xs --set train.tokens=2_000_000 --set corruption.kind=clean   one-off smoke run
+
+## Validity rules (why the design looks the way it does)
+
+- Document order is a per-seed permutation (`data.doc_order_seed`, default = train.seed), saved as
+  runs/<name>/doc_order.npy. Without it a window is a fixed slice of the corpus and onset is confounded with content.
+- Every corrupted arm is compared with: the clean baseline, the matched-clean-tokens control, a late window
+  of the same length, and the vocabulary-permutation arm (a predicted null). A deficit that any of these
+  explains is not a sensitive period.
+- Constant learning rate in critical-period arms. Plasticity (Fisher trace, norms, effective rank) is logged
+  at every eval so a deficit can be related to measured plasticity, not asserted.
+- Seeds per cell come from `bin/lmcp prereg` (simulated power on baseline seed SD), not from habit. Three
+  seeds detect only large effects (about 3 seed SDs at 70% power).
+- The pre-registration commit precedes the first corrupted run. Amendments are dated additions, never edits.
 
 ## Provenance
 

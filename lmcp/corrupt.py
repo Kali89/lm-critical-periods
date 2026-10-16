@@ -1,11 +1,13 @@
 """Text-level corruptions, applied per document with a deterministic RNG keyed on the document index.
 
-Each corruption is designed to remove one kind of structure while preserving others:
+Each corruption removes one kind of structure while preserving others:
   shuffle_sentence       words shuffled within each sentence  -> kills syntax, keeps lexicon + sentence-level bag of words
   shuffle_doc_sentences  sentence order shuffled within a document -> kills discourse / long-range, keeps syntax
   shuffle_window(k)      words shuffled within windows of k -> keeps local co-occurrence (k small), kills sentences
   char_noise(p)          per-character delete/substitute/swap with prob p -> attacks the lexical/tokenization layer
-Training-time corruptions (short_context, label_noise) live in train.py.
+`intensity` in (0, 1] is the dose: the fraction of units (sentences, documents, windows, or the per-character
+rate) that the corruption touches. intensity=1 is the full corruption.
+Training-time corruptions (short_context, label_noise, vocab_permute) live in train.py.
 """
 import re
 
@@ -22,37 +24,40 @@ def sentences(text):
     return out
 
 
-def shuffle_sentence(text, rng, param=None):
+def shuffle_sentence(text, rng, param=None, intensity=1.0):
     lines = []
     for line in text.split("\n"):
         sents = []
         for s in SENT_SPLIT.split(line.strip()):
             w = s.split()
-            if len(w) > 1:
+            if len(w) > 1 and rng.random() < intensity:
                 rng.shuffle(w)
             sents.append(" ".join(w))
         lines.append(" ".join(s for s in sents if s))
     return "\n".join(lines)
 
 
-def shuffle_doc_sentences(text, rng, param=None):
+def shuffle_doc_sentences(text, rng, param=None, intensity=1.0):
+    if rng.random() >= intensity:
+        return text
     s = sentences(text)
     rng.shuffle(s)
     return " ".join(s)
 
 
-def shuffle_window(text, rng, param=5):
+def shuffle_window(text, rng, param=5, intensity=1.0):
     k = int(param or 5)
     w = text.split()
     for i in range(0, len(w), k):
-        seg = w[i:i + k]
-        rng.shuffle(seg)
-        w[i:i + k] = seg
+        if rng.random() < intensity:
+            seg = w[i:i + k]
+            rng.shuffle(seg)
+            w[i:i + k] = seg
     return " ".join(w)
 
 
-def char_noise(text, rng, param=0.1):
-    p = float(param if param is not None else 0.1)
+def char_noise(text, rng, param=0.1, intensity=1.0):
+    p = float(param if param is not None else 0.1) * intensity
     chars = list(text)
     out = []
     i = 0
@@ -63,7 +68,8 @@ def char_noise(text, rng, param=0.1):
             if op == 0:          # delete
                 pass
             elif op == 1:        # substitute
-                out.append(LETTERS[rng.integers(26)] if c.islower() else LETTERS[rng.integers(26)].upper())
+                r = LETTERS[rng.integers(26)]
+                out.append(r.upper() if c.isupper() else r)
             else:                # swap with next
                 if i + 1 < len(chars):
                     out.append(chars[i + 1]); out.append(c); i += 1
@@ -83,12 +89,17 @@ CORRUPTIONS = {
 }
 
 
-def corrupt_doc(kind, param, idx, text):
+def corrupt_doc(kind, param, idx, text, intensity=1.0):
     if kind == "clean":
         return text
     rng = np.random.default_rng([7, int(idx)])
-    return CORRUPTIONS[kind](text, rng, param)
+    return CORRUPTIONS[kind](text, rng, param, float(intensity))
 
 
-def stream_name(kind, param=None):
-    return "clean" if kind == "clean" else (f"{kind}-{param}" if param is not None else kind)
+def stream_name(kind, param=None, intensity=1.0):
+    if kind == "clean":
+        return "clean"
+    name = kind if param is None else f"{kind}-{param}"
+    if intensity is not None and float(intensity) != 1.0:
+        name += f"@{float(intensity):g}"
+    return name

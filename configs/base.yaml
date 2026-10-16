@@ -3,7 +3,9 @@ data:
   corpus: babylm100m        # babylm100m | babylm10m | tinystories
   variant: clean            # babylm only: clean (CLIMB-cleaned) | original
   tokenizer_vocab: 8192
+  tokenizer: null           # tokenizer/stream dir name under data/tok; default <corpus>_<variant>_v<vocab>
   seq_len: 512
+  doc_order_seed: null      # permutation of document order; null = train.seed (so every seed sees a different order)
 
 model:
   size: m                   # xs | s | m | l  (see lmcp/config.py SIZES); or set n_layer/d_model/n_head
@@ -23,15 +25,23 @@ train:
   grad_clip: 1.0
   seed: 0
   log_every: 20
+  phases: null              # stream schedule, e.g. [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {babylm_nl: 1}}]
+                            # streams are mixture weights per reader; "clean" is the primary corpus and is the only
+                            # stream a corruption window replaces. null = clean throughout.
 
 corruption:
-  kind: clean               # clean | shuffle_sentence | shuffle_doc_sentences | shuffle_window | char_noise | short_context | label_noise
+  kind: clean               # clean | shuffle_sentence | shuffle_doc_sentences | shuffle_window | char_noise
+                            # | short_context | label_noise | vocab_permute (predicted-null negative control)
   param: null               # char_noise: p (0.1) | shuffle_window: k (5) | short_context: block (32) | label_noise: p (0.3)
+  intensity: 1.0            # dose in (0,1]: fraction of sentences/docs/windows/steps/vocab the corruption touches
   window: null              # [start_frac, end_frac] of the token budget during which the corruption applies
 
 eval:
   every_tokens: 10_000_000
   val_tokens: 1_000_000
+  val_streams: [clean]      # val.<name>.bin streams to evaluate; first is primary
+  plasticity: true          # Fisher trace, norms, effective rank at every eval (lmcp/plasticity.py)
+  fisher_seqs: 16
   blimp_per_paradigm: 100   # pairs per paradigm at interim evals
   blimp_final_full: true    # all 1000 pairs per paradigm at the end
   blimp_lowercase: true     # the BabyLM 'clean' variant is fully lowercased; set false for cased corpora

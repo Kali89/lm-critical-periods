@@ -1,0 +1,19 @@
+# Smoke-scale version of constantinescu.yaml: xs model, 3M tokens, one seed, four arms (~1 min each).
+name: constantinescu-smoke
+overrides:
+  model.size: xs
+  train.tokens: 3_000_000
+  train.batch_tokens: 16384
+  train.schedule: const
+  data.tokenizer: en_nl_v8192
+  eval.every_tokens: 1_000_000
+  eval.val_tokens: 100_000
+  eval.val_streams: [clean, babylm_nl]
+  eval.blimp_per_paradigm: 20
+  eval.blimp_final_full: false
+  checkpoint.every_tokens: null
+extra_runs:
+  - {run.tag: mono-en,     train.phases: null}
+  - {run.tag: interleaved, train.phases: [{until: 1.0, streams: {clean: 0.5, babylm_nl: 0.5}}]}
+  - {run.tag: seq-en-nl,   train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {babylm_nl: 1}}]}
+  - {run.tag: seq-nl-en,   train.phases: [{until: 0.5, streams: {babylm_nl: 1}}, {until: 1.0, streams: {clean: 1}}]}

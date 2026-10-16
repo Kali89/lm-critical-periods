@@ -19,7 +19,8 @@ def expand_grid(grid_path):
     axes = g.get("axes", {})
     keys = list(axes)
     runs = []
-    for combo in itertools.product(*[axes[k] for k in keys]) if keys else [()]:
+    combos = itertools.product(*[axes[k] for k in keys]) if keys else ([()] if not g.get("extra_runs") else [])
+    for combo in combos:
         over = dict(base_over)
         for k, v in zip(keys, combo):
             over[k] = v

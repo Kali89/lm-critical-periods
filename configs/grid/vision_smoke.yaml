@@ -1,0 +1,13 @@
+# Pipeline check for the vision positive control: 1 epoch on 5000 images, ~seconds per run.
+name: vision_smoke
+overrides:
+  task: vision
+  vision.epochs: 1
+  vision.subset: 5000
+  train.schedule: const
+  train.lr: 0.05
+axes:
+  corruption:
+    - {kind: clean}
+    - {kind: blur, window: [0.0, 0.5]}
+  train.seed: [0]

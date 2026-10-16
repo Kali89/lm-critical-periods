@@ -1,0 +1,12 @@
+# Step 1 of the protocol: clean baselines only. Locates developmental landmarks, measures seed-to-seed SD for
+# the power analysis, and records the Fisher-trace curve that predicts the sensitive window (docs/preregistration.md).
+# 3 seeds x ~40 min at size m. Run this, then `bin/lmcp prereg`, before pilot.yaml is queued.
+name: baselines
+overrides:
+  model.size: m
+  train.tokens: 100_000_000
+  train.schedule: const
+  eval.every_tokens: 2_500_000
+axes:
+  corruption: [{kind: clean}]
+  train.seed: [0, 1, 2]

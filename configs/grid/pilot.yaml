@@ -1,8 +1,13 @@
 # Pilot: does early structural corruption leave a deficit the clean tail cannot repair?
-# Design: removal-time sweep (corrupt from 0 to t, then clean) for two corruptions, plus a late window as the
-# recency control, constant LR so the schedule cannot explain a deficit. 3 seeds. 'm' model (~14M params),
-# 100M tokens (~0.75 epoch of BabyLM-100M). Roughly 1h per run on an M3 Max -> ~30 machine-hours in total.
-# Required streams: bin/lmcp tok encode --kind shuffle_sentence ; bin/lmcp tok encode --kind shuffle_doc_sentences
+# Removal-time sweep for two corruptions, a late window as the recency control, a vocabulary-permutation
+# predicted-null negative control, two dose levels, and matched-clean-tokens controls. Constant LR so the
+# schedule cannot explain a deficit. Seeds: start with [0,1,2]; set the final count from `bin/lmcp prereg`.
+# 'm' model (~14M params), 100M tokens (~0.75 epoch of BabyLM-100M), ~40 min per run on an M3 Max.
+# Required streams (one command each):
+#   bin/lmcp tok encode --kind shuffle_sentence
+#   bin/lmcp tok encode --kind shuffle_sentence --intensity 0.5
+#   bin/lmcp tok encode --kind shuffle_sentence --intensity 0.25
+# Pre-registration: docs/preregistration.md must be filled and committed before this grid is queued.
 name: pilot
 overrides:
   model.size: m
@@ -15,13 +20,20 @@ axes:
     - {kind: shuffle_sentence, window: [0.0, 0.1]}
     - {kind: shuffle_sentence, window: [0.0, 0.25]}
     - {kind: shuffle_sentence, window: [0.0, 0.5]}
-    - {kind: shuffle_sentence, window: [0.5, 0.75]}      # same-length window, late onset: recency control
+    - {kind: shuffle_sentence, window: [0.5, 0.75]}                 # same-length window, late onset: recency control
+    - {kind: shuffle_sentence, window: [0.0, 0.5], intensity: 0.5}  # dose response
+    - {kind: shuffle_sentence, window: [0.0, 0.5], intensity: 0.25}
     - {kind: short_context, param: 32, window: [0.0, 0.25]}
     - {kind: short_context, param: 32, window: [0.0, 0.5]}
     - {kind: short_context, param: 32, window: [0.5, 0.75]}
+    - {kind: vocab_permute, window: [0.0, 0.5]}                     # predicted null (Achille's label permutation)
   train.seed: [0, 1, 2]
 extra_runs:
-  # matched-clean-tokens control: a clean run with only the tokens the 0-0.5 arms saw clean
+  # matched-clean-tokens controls: clean runs with only the tokens the 0-0.5 arms saw clean
   - {corruption: {kind: clean}, train.tokens: 50_000_000, train.seed: 0}
   - {corruption: {kind: clean}, train.tokens: 50_000_000, train.seed: 1}
   - {corruption: {kind: clean}, train.tokens: 50_000_000, train.seed: 2}
+  # extended recovery: same corrupted window in absolute tokens (first 50M), then 150M clean instead of 50M
+  - {corruption: {kind: shuffle_sentence, window: [0.0, 0.25]}, train.tokens: 200_000_000, train.seed: 0}
+  - {corruption: {kind: shuffle_sentence, window: [0.0, 0.25]}, train.tokens: 200_000_000, train.seed: 1}
+  - {corruption: {kind: shuffle_sentence, window: [0.0, 0.25]}, train.tokens: 200_000_000, train.seed: 2}

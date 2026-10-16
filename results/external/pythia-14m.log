@@ -1,0 +1,41 @@
+W1016 11:27:12.158000 68527 torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+device=mps blimp_pairs=13400 val_seqs=585 (299520 scored tokens)
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 12325.69it/s]
+step      0  blimp 0.528  ind_acc 0.000  val 11.020  lrg 0.000  7.6s
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 13785.72it/s]
+step      1  blimp 0.528  ind_acc 0.000  val 11.020  lrg 0.000  7.5s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 15771.18it/s]
+step      2  blimp 0.528  ind_acc 0.000  val 11.020  lrg 0.000  13.0s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 10758.98it/s]
+step      4  blimp 0.528  ind_acc 0.000  val 11.019  lrg 0.000  12.5s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 15155.57it/s]
+step      8  blimp 0.527  ind_acc 0.000  val 10.998  lrg 0.003  14.0s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 1700.87it/s]
+step     16  blimp 0.530  ind_acc 0.000  val 10.925  lrg 0.011  15.1s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 11901.40it/s]
+step     32  blimp 0.535  ind_acc 0.000  val 10.685  lrg 0.026  14.8s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 19382.65it/s]
+step     64  blimp 0.525  ind_acc 0.000  val 10.265  lrg 0.018  15.6s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 9998.65it/s]
+step    128  blimp 0.523  ind_acc 0.000  val 9.485  lrg 0.042  12.3s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 13996.36it/s]
+step    256  blimp 0.529  ind_acc 0.000  val 7.618  lrg 0.086  12.5s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 14545.61it/s]
+step    512  blimp 0.552  ind_acc 0.000  val 6.435  lrg 0.206  12.4s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 5879.68it/s]
+step   1000  blimp 0.569  ind_acc 0.000  val 5.904  lrg 0.350  6.2s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 13280.30it/s]
+step   2000  blimp 0.597  ind_acc 0.101  val 5.250  lrg 0.753  12.4s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 12367.78it/s]
+step   4000  blimp 0.640  ind_acc 0.430  val 4.917  lrg 0.791  19.2s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 7477.35it/s]
+step   8000  blimp 0.649  ind_acc 0.569  val 4.803  lrg 0.803  19.7s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 12709.51it/s]
+step  16000  blimp 0.657  ind_acc 0.397  val 4.729  lrg 0.835  23.6s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 8290.43it/s]
+step  32000  blimp 0.677  ind_acc 0.522  val 4.672  lrg 0.836  18.6s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 5433.59it/s]
+step  64000  blimp 0.663  ind_acc 0.646  val 4.659  lrg 0.838  34.2s
+Loading weights:   0%|          | 0/76 [00:00<?, ?it/s]Loading weights: 100%|██████████| 76/76 [00:00<00:00, 5356.17it/s]
+step 143000  blimp 0.680  ind_acc 0.747  val 4.586  lrg 0.845  6.3s

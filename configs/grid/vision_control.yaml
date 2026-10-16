@@ -1,0 +1,27 @@
+# Positive control: Achille, Rovere & Soatto (ICLR 2019) critical period, CIFAR-10 / ResNet-18. See docs/vision-control.md.
+# Paper protocol: 160 epochs after the deficit is removed, SGD lr 0.1 x 0.97/epoch, wd 5e-4, batch 128.
+# Compute: measured ~690 img/s (fp32, M3 Max) = ~73 s/epoch + ~6 s/test eval => 160 epochs ~3.5 h/run, 18 runs ~63 h.
+# So this grid uses 60 epochs: ~78 min/run, 18 runs (6 arms x 3 seeds) ~23-24 h. The per-epoch decay is
+# rescaled (0.97^(160/60) = 0.914) so the lr spans the same 0.1 -> ~0.0008 range as the paper's schedule.
+# Windows are fractions of total steps, so window [0, 0.25] = deficit removed after epoch 15 of 60.
+# vision.weight_decay (5e-4) is used for SGD; train.weight_decay (LM AdamW default 0.1) is ignored by the vision task.
+# model.* / train.tokens / data.* / eval.* from base.yaml are ignored by task: vision.
+name: vision_control
+overrides:
+  task: vision
+  vision.epochs: 60
+  vision.batch_size: 128
+  vision.subset: null
+  vision.lr_decay: 0.914
+  vision.weight_decay: 0.0005
+  train.schedule: exp
+  train.lr: 0.1
+axes:
+  corruption:
+    - {kind: clean}
+    - {kind: blur, window: [0.0, 0.25]}
+    - {kind: blur, window: [0.0, 0.5]}
+    - {kind: blur, window: [0.5, 0.75]}
+    - {kind: label_permute, window: [0.0, 0.5]}
+    - {kind: vflip, window: [0.0, 0.5]}
+  train.seed: [0, 1, 2]

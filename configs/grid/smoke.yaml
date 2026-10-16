@@ -1,4 +1,6 @@
-# End-to-end smoke test. Tiny model, 3M tokens, two runs. ~2-3 minutes each on an M3 Max.
+# End-to-end smoke test (~1 min per run at xs). Exercises: per-seed document order (two clean seeds), a
+# corrupted-stream window, the vocabulary-permutation negative control, a half-dose arm, bootstrap CIs and
+# plasticity metrics. Needs streams: clean, shuffle_sentence, shuffle_sentence@0.5.
 name: smoke
 overrides:
   model.size: xs
@@ -14,4 +16,8 @@ axes:
   corruption:
     - {kind: clean}
     - {kind: shuffle_sentence, window: [0.0, 0.5]}
+    - {kind: shuffle_sentence, window: [0.0, 0.5], intensity: 0.5}
+    - {kind: vocab_permute, window: [0.0, 0.5]}
   train.seed: [0]
+extra_runs:
+  - {corruption: {kind: clean}, train.seed: 1}

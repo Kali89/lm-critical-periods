@@ -12,9 +12,10 @@ import random
 import re
 import subprocess
 import zipfile
+import zlib
 from pathlib import Path
 
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, snapshot_download
 
 from . import DATA
 
@@ -23,6 +24,13 @@ BABYLM_SOURCES = ["aochildes", "bnc_spoken", "cbt", "children_stories", "gutenbe
                   "open_subtitles", "qed", "simple_wikipedia", "switchboard", "wikipedia"]
 TINY_REPO = "roneneldan/TinyStories"
 BLIMP_ZIP = "https://github.com/alexwarstadt/blimp/archive/refs/heads/master.zip"
+# Dutch L2 corpus. BabyLM-community/babylm-nld is gated (needs an authenticated, approved HF account), so the
+# default is a deterministic subsample of Dutch Wikipedia. See docs/data-babylm-nl.md.
+NL_REPO = "wikimedia/wikipedia"
+NL_CONFIG = "20231101.nl"
+NL_MIN_WORDS = 100      # drop stub articles (bot-made villages/species, ~66% of articles but 15% of words)
+NL_KEEP_PER_MILLE = 330  # keep 33% of remaining articles -> ~104M words before the val split
+NL_VAL_PERCENT = 5       # of kept articles, held out as val (article-level, so no leakage)
 DOC_SHUFFLE_SEED = 1234
 DOC_TARGET_CHARS = 2000   # documents are normalised to roughly this size (merge tiny lines, split huge blocks)
 
@@ -30,7 +38,9 @@ DOC_TARGET_CHARS = 2000   # documents are normalised to roughly this size (merge
 def download(corpus, variant="clean"):
     raw = DATA / "raw" / corpus
     raw.mkdir(parents=True, exist_ok=True)
-    if corpus.startswith("babylm"):
+    if corpus == "babylm_nl":
+        snapshot_download(NL_REPO, repo_type="dataset", allow_patterns=[f"{NL_CONFIG}/*", "README.md"], local_dir=raw)
+    elif corpus.startswith("babylm"):
         size = "100M" if corpus == "babylm100m" else "10M"
         for split in (size, "dev"):
             for src in BABYLM_SOURCES:
@@ -76,9 +86,37 @@ def chunk_lines(lines, target=DOC_TARGET_CHARS):
     return docs
 
 
+def _nl_bucket(article_id, salt):
+    return zlib.crc32(f"{salt}:{article_id}".encode())
+
+
+def _iter_nl_lines(raw, split):
+    """Deterministic subsample of Dutch Wikipedia: stubs dropped, 33% of the rest kept by hash of article id,
+    5% of those held out as val. Text is lowercased to match the English 'clean' variant."""
+    import pyarrow.parquet as pq
+    for fn in sorted((raw / NL_CONFIG).glob("*.parquet")):
+        for batch in pq.ParquetFile(fn).iter_batches(batch_size=2000, columns=["id", "text"]):
+            for aid, text in zip(batch.column("id").to_pylist(), batch.column("text").to_pylist()):
+                if _nl_bucket(aid, "keep") % 1000 >= NL_KEEP_PER_MILLE or len(text.split()) < NL_MIN_WORDS:
+                    continue
+                is_val = _nl_bucket(aid, "val") % 100 < NL_VAL_PERCENT
+                if is_val != (split == "val"):
+                    continue
+                yield from (ln for ln in text.lower().split("\n") if ln.strip())
+
+
+def _iter_nl_docs(raw, split):
+    # One continuous line stream (blank lines dropped), like the English .txt files, so documents come out at
+    # ~2000 chars; a document may therefore span two neighbouring articles.
+    for d in chunk_lines(_iter_nl_lines(raw, split)):
+        yield "wikipedia_nl", d
+
+
 def iter_raw_docs(corpus, variant, split):
     raw = DATA / "raw" / corpus
-    if corpus.startswith("babylm"):
+    if corpus == "babylm_nl":
+        yield from _iter_nl_docs(raw, split)
+    elif corpus.startswith("babylm"):
         size = "100M" if corpus == "babylm100m" else "10M"
         sub = size if split == "train" else "dev"
         for src in BABYLM_SOURCES:

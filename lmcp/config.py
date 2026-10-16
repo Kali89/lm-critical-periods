@@ -16,7 +16,7 @@ SIZES = {
 }
 
 TEXT_KINDS = {"clean", "shuffle_sentence", "shuffle_doc_sentences", "shuffle_window", "char_noise"}
-TRAIN_KINDS = {"short_context", "label_noise"}
+TRAIN_KINDS = {"short_context", "label_noise", "vocab_permute"}
 
 
 def load_yaml(p):
@@ -79,16 +79,26 @@ def run_name(cfg, grid=None):
     kind = c["kind"]
     if c.get("param") is not None:
         kind += f"-{c['param']}"
+    if c.get("intensity") is not None and float(c["intensity"]) != 1.0 and kind != "clean":
+        kind += f"@{float(c['intensity']):g}"
+    if cfg.get("train", {}).get("phases"):
+        kind += "+phases"
     w = c.get("window")
     win = f"w{w[0]:.2f}-{w[1]:.2f}" if w else "wnone"
     parts = [grid] if grid else []
+    if cfg.get("run", {}).get("tag"):
+        parts.append(str(cfg["run"]["tag"]))
     parts += [kind, win, cfg["model"]["size"], cfg["train"]["schedule"], f"s{cfg['train']['seed']}", config_hash(cfg)]
     return "__".join(parts)
 
 
-def stream_dir(cfg):
+def tokenizer_name(cfg):
     d = cfg["data"]
-    return ROOT / "data" / "tok" / f"{d['corpus']}_{d['variant']}_v{d['tokenizer_vocab']}"
+    return d.get("tokenizer") or f"{d['corpus']}_{d['variant']}_v{d['tokenizer_vocab']}"
+
+
+def stream_dir(cfg):
+    return ROOT / "data" / "tok" / tokenizer_name(cfg)
 
 
 def corpus_dir(cfg_or_corpus, variant=None):
