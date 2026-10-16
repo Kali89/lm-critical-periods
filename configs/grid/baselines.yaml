@@ -1,12 +1,18 @@
-# Step 1 of the protocol: clean baselines only. Locates developmental landmarks, measures seed-to-seed SD for
-# the power analysis, and records the Fisher-trace curve that predicts the sensitive window (docs/preregistration.md).
-# 3 seeds x ~40 min at size m. Run this, then `bin/lmcp prereg`, before pilot.yaml is queued.
+# Step 1: baseline ladder. Clean runs across size x token budget to find the operating point where the
+# abilities we want as endpoints (induction, BLiMP terms, long-range gain) actually emerge, and to measure
+# seed SD and the Fisher-trace curve. Pythia-14M shows induction only after ~150-300 tokens/param, so a
+# 100M-token run of a 14M model (7 tok/param) may never show it. 1 epoch of BabyLM-100M = ~150M tokens.
+# Set train.lr from lr_sweep first.
+# Times (M3 Max): s 150M 24 min, s 600M 1.6 h, m 150M 1 h, m 600M 3.8 h, m 1.4B 9 h. Total ~22 h on one machine.
 name: baselines
 overrides:
-  model.size: m
-  train.tokens: 100_000_000
   train.schedule: const
-  eval.every_tokens: 2_500_000
+  train.lr: 1.0e-3
+  eval.every_tokens: 25_000_000
+  checkpoint.every_tokens: 100_000_000
 axes:
-  corruption: [{kind: clean}]
-  train.seed: [0, 1, 2]
+  model.size: [s, m]
+  train.tokens: [150_000_000, 600_000_000]
+  train.seed: [0, 1]
+extra_runs:
+  - {model.size: m, train.tokens: 1_400_000_000, train.seed: 0, eval.every_tokens: 50_000_000}

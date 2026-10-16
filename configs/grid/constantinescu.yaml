@@ -1,33 +1,33 @@
 # Replication of the prior null: Constantinescu, Pimentel, Cotterell & Warstadt (TACL 2025). L1 then L2 at a
 # fixed switch point vs interleaved from the start vs monolingual. Their finding: late L2 is learned as well as
 # early L2 (no critical period); L1 is catastrophically forgotten unless continued. Here L1 = English
-# (BabyLM-100M, lowercased), L2 = Dutch (Dutch Wikipedia subsample, lowercased; see docs/data-babylm-nl.md).
-# Outcomes: val_loss/clean (English), val_loss/babylm_nl (Dutch), BLiMP (English syntax).
+# (BabyLM-100M, lowercased), L2 = Dutch (official BabyLM 2026 Dutch, lowercased; see docs/data-babylm-nl.md).
+# Outcomes: val_loss/clean (English), val_loss/babylm_nld (Dutch), BLiMP (English syntax).
 # Setup (once):
-#   bin/lmcp tok train --corpora babylm100m_clean,babylm_nl_clean --name en_nl_v8192
-#   bin/lmcp tok encode --name en_nl_v8192 --split both
-#   bin/lmcp tok encode --name en_nl_v8192 --corpus babylm_nl --split both --as babylm_nl
+#   bin/lmcp tok train --corpora babylm100m_clean,babylm_nld_clean --name en_nld_v8192
+#   bin/lmcp tok encode --name en_nld_v8192 --split both
+#   bin/lmcp tok encode --name en_nld_v8192 --corpus babylm_nld --split both --as babylm_nld
 name: constantinescu
 overrides:
   model.size: m
   train.tokens: 100_000_000
   train.schedule: const
-  data.tokenizer: en_nl_v8192
+  data.tokenizer: en_nld_v8192
   eval.every_tokens: 5_000_000
-  eval.val_streams: [clean, babylm_nl]
+  eval.val_streams: [clean, babylm_nld]
 extra_runs:   # the design is a list of (tag, phase schedule, seed) cells rather than a product
   - {run.tag: mono-en,         train.phases: null, train.seed: 0}
   - {run.tag: mono-en,         train.phases: null, train.seed: 1}
   - {run.tag: mono-en,         train.phases: null, train.seed: 2}
-  - {run.tag: interleaved,     train.phases: [{until: 1.0, streams: {clean: 0.5, babylm_nl: 0.5}}], train.seed: 0}
-  - {run.tag: interleaved,     train.phases: [{until: 1.0, streams: {clean: 0.5, babylm_nl: 0.5}}], train.seed: 1}
-  - {run.tag: interleaved,     train.phases: [{until: 1.0, streams: {clean: 0.5, babylm_nl: 0.5}}], train.seed: 2}
-  - {run.tag: seq-en-nl,       train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {babylm_nl: 1}}], train.seed: 0}
-  - {run.tag: seq-en-nl,       train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {babylm_nl: 1}}], train.seed: 1}
-  - {run.tag: seq-en-nl,       train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {babylm_nl: 1}}], train.seed: 2}
-  - {run.tag: seq-interleaved, train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {clean: 0.5, babylm_nl: 0.5}}], train.seed: 0}
-  - {run.tag: seq-interleaved, train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {clean: 0.5, babylm_nl: 0.5}}], train.seed: 1}
-  - {run.tag: seq-interleaved, train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {clean: 0.5, babylm_nl: 0.5}}], train.seed: 2}
-  - {run.tag: seq-nl-en,       train.phases: [{until: 0.5, streams: {babylm_nl: 1}}, {until: 1.0, streams: {clean: 1}}], train.seed: 0}
-  - {run.tag: seq-nl-en,       train.phases: [{until: 0.5, streams: {babylm_nl: 1}}, {until: 1.0, streams: {clean: 1}}], train.seed: 1}
-  - {run.tag: seq-nl-en,       train.phases: [{until: 0.5, streams: {babylm_nl: 1}}, {until: 1.0, streams: {clean: 1}}], train.seed: 2}
+  - {run.tag: interleaved,     train.phases: [{until: 1.0, streams: {clean: 0.5, babylm_nld: 0.5}}], train.seed: 0}
+  - {run.tag: interleaved,     train.phases: [{until: 1.0, streams: {clean: 0.5, babylm_nld: 0.5}}], train.seed: 1}
+  - {run.tag: interleaved,     train.phases: [{until: 1.0, streams: {clean: 0.5, babylm_nld: 0.5}}], train.seed: 2}
+  - {run.tag: seq-en-nl,       train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {babylm_nld: 1}}], train.seed: 0}
+  - {run.tag: seq-en-nl,       train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {babylm_nld: 1}}], train.seed: 1}
+  - {run.tag: seq-en-nl,       train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {babylm_nld: 1}}], train.seed: 2}
+  - {run.tag: seq-interleaved, train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {clean: 0.5, babylm_nld: 0.5}}], train.seed: 0}
+  - {run.tag: seq-interleaved, train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {clean: 0.5, babylm_nld: 0.5}}], train.seed: 1}
+  - {run.tag: seq-interleaved, train.phases: [{until: 0.5, streams: {clean: 1}}, {until: 1.0, streams: {clean: 0.5, babylm_nld: 0.5}}], train.seed: 2}
+  - {run.tag: seq-nl-en,       train.phases: [{until: 0.5, streams: {babylm_nld: 1}}, {until: 1.0, streams: {clean: 1}}], train.seed: 0}
+  - {run.tag: seq-nl-en,       train.phases: [{until: 0.5, streams: {babylm_nld: 1}}, {until: 1.0, streams: {clean: 1}}], train.seed: 1}
+  - {run.tag: seq-nl-en,       train.phases: [{until: 0.5, streams: {babylm_nld: 1}}, {until: 1.0, streams: {clean: 1}}], train.seed: 2}

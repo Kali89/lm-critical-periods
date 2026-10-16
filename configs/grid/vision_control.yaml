@@ -1,27 +1,155 @@
-# Positive control: Achille, Rovere & Soatto (ICLR 2019) critical period, CIFAR-10 / ResNet-18. See docs/vision-control.md.
-# Paper protocol: 160 epochs after the deficit is removed, SGD lr 0.1 x 0.97/epoch, wd 5e-4, batch 128.
-# Compute: measured ~690 img/s (fp32, M3 Max) = ~73 s/epoch + ~6 s/test eval => 160 epochs ~3.5 h/run, 18 runs ~63 h.
-# So this grid uses 60 epochs: ~78 min/run, 18 runs (6 arms x 3 seeds) ~23-24 h. The per-epoch decay is
-# rescaled (0.97^(160/60) = 0.914) so the lr spans the same 0.1 -> ~0.0008 range as the paper's schedule.
-# Windows are fractions of total steps, so window [0, 0.25] = deficit removed after epoch 15 of 60.
-# vision.weight_decay (5e-4) is used for SGD; train.weight_decay (LM AdamW default 0.1) is ignored by the vision task.
-# model.* / train.tokens / data.* / eval.* from base.yaml are ignored by task: vision.
+# Positive control, paper-faithful: Achille, Rovere & Soatto (ICLR 2019), CIFAR-10 / ResNet-18.
+# Protocol: deficit (blur = 8x8 downsample + bilinear upsample) for the first t0 epochs, then 160 clean epochs;
+# SGD lr 0.1 x 0.97 per epoch, momentum 0.9, wd 5e-4, batch 128. Window = [0, t0/(160+t0)] of total steps.
+# Arms x 3 seeds: clean(160) | blur t0=20,40,80 | blur late (epochs 80-120 of 200, recency control) |
+# label permutation t0=40 (the paper's predicted null). 18 runs.
+# Expected: final test accuracy falls with t0 for blur (sharply for ResNet-18 per the paper), late blur and
+# label permutation recover to clean. If this does not reproduce, stop and debug the harness.
+# Compute: ~690 img/s => ~80 s/epoch => 3.6-5.3 h per run, ~75 machine-hours; split by seed across machines
+# (edit train.seed below per machine or run one seed's rows on each). vision.weight_decay is the SGD wd.
 name: vision_control
 overrides:
   task: vision
-  vision.epochs: 60
   vision.batch_size: 128
   vision.subset: null
-  vision.lr_decay: 0.914
+  vision.lr_decay: 0.97
   vision.weight_decay: 0.0005
+  vision.test_every_epochs: 2
   train.schedule: exp
   train.lr: 0.1
-axes:
+extra_runs:
+- run.tag: clean
+  vision.epochs: 160
   corruption:
-    - {kind: clean}
-    - {kind: blur, window: [0.0, 0.25]}
-    - {kind: blur, window: [0.0, 0.5]}
-    - {kind: blur, window: [0.5, 0.75]}
-    - {kind: label_permute, window: [0.0, 0.5]}
-    - {kind: vflip, window: [0.0, 0.5]}
-  train.seed: [0, 1, 2]
+    kind: clean
+  train.seed: 0
+- run.tag: blur-t20
+  vision.epochs: 180
+  corruption:
+    kind: blur
+    window:
+    - 0.0
+    - 0.1111
+  train.seed: 0
+- run.tag: blur-t40
+  vision.epochs: 200
+  corruption:
+    kind: blur
+    window:
+    - 0.0
+    - 0.2
+  train.seed: 0
+- run.tag: blur-t80
+  vision.epochs: 240
+  corruption:
+    kind: blur
+    window:
+    - 0.0
+    - 0.3333
+  train.seed: 0
+- run.tag: blur-late40
+  vision.epochs: 200
+  corruption:
+    kind: blur
+    window:
+    - 0.4
+    - 0.6
+  train.seed: 0
+- run.tag: labelperm-t40
+  vision.epochs: 200
+  corruption:
+    kind: label_permute
+    window:
+    - 0.0
+    - 0.2
+  train.seed: 0
+- run.tag: clean
+  vision.epochs: 160
+  corruption:
+    kind: clean
+  train.seed: 1
+- run.tag: blur-t20
+  vision.epochs: 180
+  corruption:
+    kind: blur
+    window:
+    - 0.0
+    - 0.1111
+  train.seed: 1
+- run.tag: blur-t40
+  vision.epochs: 200
+  corruption:
+    kind: blur
+    window:
+    - 0.0
+    - 0.2
+  train.seed: 1
+- run.tag: blur-t80
+  vision.epochs: 240
+  corruption:
+    kind: blur
+    window:
+    - 0.0
+    - 0.3333
+  train.seed: 1
+- run.tag: blur-late40
+  vision.epochs: 200
+  corruption:
+    kind: blur
+    window:
+    - 0.4
+    - 0.6
+  train.seed: 1
+- run.tag: labelperm-t40
+  vision.epochs: 200
+  corruption:
+    kind: label_permute
+    window:
+    - 0.0
+    - 0.2
+  train.seed: 1
+- run.tag: clean
+  vision.epochs: 160
+  corruption:
+    kind: clean
+  train.seed: 2
+- run.tag: blur-t20
+  vision.epochs: 180
+  corruption:
+    kind: blur
+    window:
+    - 0.0
+    - 0.1111
+  train.seed: 2
+- run.tag: blur-t40
+  vision.epochs: 200
+  corruption:
+    kind: blur
+    window:
+    - 0.0
+    - 0.2
+  train.seed: 2
+- run.tag: blur-t80
+  vision.epochs: 240
+  corruption:
+    kind: blur
+    window:
+    - 0.0
+    - 0.3333
+  train.seed: 2
+- run.tag: blur-late40
+  vision.epochs: 200
+  corruption:
+    kind: blur
+    window:
+    - 0.4
+    - 0.6
+  train.seed: 2
+- run.tag: labelperm-t40
+  vision.epochs: 200
+  corruption:
+    kind: label_permute
+    window:
+    - 0.0
+    - 0.2
+  train.seed: 2

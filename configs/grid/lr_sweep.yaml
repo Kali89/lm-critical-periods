@@ -1,0 +1,14 @@
+# Step 0: learning-rate sweep at the two candidate sizes, one epoch of BabyLM (150M tokens), constant LR.
+# Pick the LR with the best final val loss per size and set train.lr in baselines.yaml / pilot.yaml to it.
+# ~1 h at s, ~3 h at m on one machine.
+name: lr_sweep
+overrides:
+  train.tokens: 150_000_000
+  train.schedule: const
+  eval.every_tokens: 25_000_000
+  eval.blimp_final_full: false
+  checkpoint.every_tokens: null
+axes:
+  model.size: [s, m]
+  train.lr: [3.0e-4, 1.0e-3, 3.0e-3]
+  train.seed: [0]

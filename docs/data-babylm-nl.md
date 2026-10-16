@@ -67,3 +67,25 @@ so case is not a confound in the bilingual experiment. The `variant` argument is
   therefore also a register contrast. The same applies to the English side's Wikipedia share (~10%).
 - Wikipedia markup residue (section headings as short lines, lists, tables flattened) is left as is.
 - Raw stub filtering threshold (100 words) and the 33% keep rate were chosen to hit ~100M words, not tuned otherwise.
+
+## Update 2026-10-16: official BabyLM Dutch now in use (`babylm_nld`)
+
+Access to `BabyLM-community/babylm-nld` was granted and the harness now uses it; the Wikipedia fallback
+(`babylm_nl`) remains available but is no longer referenced by any grid.
+
+- 304,611 documents, 109.9M whitespace tokens. Categories: padding-opensubtitles 69.0M (the organisers'
+  filler to reach the 100M tier), educational 19.1M, child-wiki 9.7M, child-books 4.6M, child-directed-speech
+  3.3M, child-news 3.2M, subtitles 1.0M. Register is therefore much closer to the English BabyLM mix
+  (which is also subtitle-heavy) than Wikipedia was.
+- Per-document licences are in the `license` column (child-books are cc-by-nc-4.0, for example); the dataset
+  card says `unknown` overall. Check before redistributing derived text.
+- Text is cased (4.6% uppercase letters); it is lowercased on ingestion to match the English `clean` variant.
+- 5% of documents are held out as val by doc-id hash. Prepared: 298,462 train docs (539M chars),
+  16,353 val docs (29.5M chars). With the shared English+Dutch tokenizer `en_nld_v8192`: 154.7M Dutch train
+  tokens, 8.5M val; English 145.2M / 14.1M under the same tokenizer.
+
+    bin/lmcp data download --corpus babylm_nld      # needs `hf auth login` and dataset access
+    bin/lmcp data prepare --corpus babylm_nld
+    bin/lmcp tok train --corpora babylm100m_clean,babylm_nld_clean --name en_nld_v8192
+    bin/lmcp tok encode --name en_nld_v8192 --split both
+    bin/lmcp tok encode --name en_nld_v8192 --corpus babylm_nld --split both --as babylm_nld

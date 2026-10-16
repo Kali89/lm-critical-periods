@@ -52,3 +52,15 @@ The deficit-removal curve (final accuracy vs removal epoch) can be extended with
 Measured on the M3 Max, fp32, batch 128: ~690 img/s steady state (GPU-bound; CPU augmentation is 2.4 ms/batch).
 That is ~73 s per full CIFAR epoch plus ~6 s per test eval. 160 epochs = ~3.5 h/run (18 runs ~63 h); 60 epochs =
 ~78 min/run, 18 runs ~23-24 h. Throughput was measured with a 5000-image smoke run and a short microbenchmark, not a full epoch.
+
+## Confirmed against the PDF (docs/refs/1711.08856v3.pdf, 2026-10-16)
+
+Appendix A: "For the ResNet experiments, we use the ResNet-18 architecture from He et al. (2016) with initial
+learning rate 0.1, learning rate decay .97 per epoch, and weight decay 0.0005." Batch size 128, SGD. Deficit:
+"for the first t0 epochs the images in the dataset are downsampled to 8x8 and then upsampled back to 32x32
+using bilinear interpolation ... After that, the training continues for 160 more epochs". Augmentation
+(stated for the other architectures): random translations up to 4 pixels and horizontal flipping. Figure 3
+(left), ResNet-18 on CIFAR-10: test accuracy spans roughly 94% (deficit removed at epoch 0) down to about 82%
+(removed at epoch 180), i.e. a deficit of order 10 points, "remarkably sharper" than the All-CNN. Figure 2:
+vertical flip and label permutation show no lasting deficit; noise a smaller one. `configs/grid/vision_control.yaml`
+matches these settings.

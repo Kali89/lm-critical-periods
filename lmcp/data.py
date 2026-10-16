@@ -26,7 +26,9 @@ TINY_REPO = "roneneldan/TinyStories"
 BLIMP_ZIP = "https://github.com/alexwarstadt/blimp/archive/refs/heads/master.zip"
 # Dutch L2 corpus. BabyLM-community/babylm-nld is gated (needs an authenticated, approved HF account), so the
 # default is a deterministic subsample of Dutch Wikipedia. See docs/data-babylm-nl.md.
-NL_REPO = "wikimedia/wikipedia"
+NLD_REPO = "BabyLM-community/babylm-nld"   # official BabyLM 2026 multilingual-track Dutch (gated; needs hf auth login)
+NLD_VAL_PERCENT = 5                          # whole documents held out by doc-id hash
+NL_REPO = "wikimedia/wikipedia"              # fallback used before access was granted
 NL_CONFIG = "20231101.nl"
 NL_MIN_WORDS = 100      # drop stub articles (bot-made villages/species, ~66% of articles but 15% of words)
 NL_KEEP_PER_MILLE = 330  # keep 33% of remaining articles -> ~104M words before the val split
@@ -38,7 +40,10 @@ DOC_TARGET_CHARS = 2000   # documents are normalised to roughly this size (merge
 def download(corpus, variant="clean"):
     raw = DATA / "raw" / corpus
     raw.mkdir(parents=True, exist_ok=True)
-    if corpus == "babylm_nl":
+    if corpus == "babylm_nld":
+        for f in ("README.md", "dataset_metadata.json", "data/train-00000-of-00002.parquet", "data/train-00001-of-00002.parquet"):
+            hf_hub_download(NLD_REPO, f, repo_type="dataset", local_dir=raw)
+    elif corpus == "babylm_nl":
         snapshot_download(NL_REPO, repo_type="dataset", allow_patterns=[f"{NL_CONFIG}/*", "README.md"], local_dir=raw)
     elif corpus.startswith("babylm"):
         size = "100M" if corpus == "babylm100m" else "10M"
@@ -112,7 +117,34 @@ def _iter_nl_docs(raw, split):
         yield "wikipedia_nl", d
 
 
+def _iter_nld_docs(raw, split):
+    """Official BabyLM Dutch: 304k documents in 7 categories (69M of 110M tokens are 'padding-opensubtitles',
+    the organisers' filler to reach the 100M tier). Lowercased to match the English 'clean' variant. Whole
+    documents are held out as val by doc-id hash. Within each category the documents form one line stream that
+    chunk_lines cuts into ~2000-char documents, exactly as the English source files are treated."""
+    import pyarrow.parquet as pq
+    import zlib
+    by_cat = {}
+    for f in sorted((raw / "data").glob("*.parquet")):
+        t = pq.read_table(f, columns=["text", "doc-id", "category"])
+        for text, did, cat in zip(t["text"].to_pylist(), t["doc-id"].to_pylist(), t["category"].to_pylist()):
+            is_val = zlib.crc32(did.encode()) % 100 < NLD_VAL_PERCENT
+            if is_val != (split == "val"):
+                continue
+            by_cat.setdefault(cat, []).append(text.lower())
+    for cat in sorted(by_cat):
+        def lines():
+            for text in by_cat[cat]:
+                yield from text.split("\n")
+                yield ""          # blank line = soft document boundary for chunk_lines
+        for d in chunk_lines(lines()):
+            yield f"nld_{cat}", d
+
+
 def iter_raw_docs(corpus, variant, split):
+    if corpus == "babylm_nld":
+        yield from _iter_nld_docs(DATA / "raw" / corpus, split)
+        return
     raw = DATA / "raw" / corpus
     if corpus == "babylm_nl":
         yield from _iter_nl_docs(raw, split)
