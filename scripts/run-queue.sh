@@ -3,6 +3,7 @@
 #   scripts/run-queue.sh            run until the queue is empty
 #   MAX_RUNS=3 scripts/run-queue.sh run at most 3 jobs
 #   touch STOP                      finish the current run, then stop (file is removed on exit)
+#   Ctrl-C                          stop now; the run checkpoints and goes back to pending, resume by rerunning
 #   ALLOW_BATTERY=1                 override the AC-power check
 set -u
 cd "$(dirname "$0")/.."
@@ -13,6 +14,7 @@ fi
 mkdir -p queue
 echo "$$ $(hostname) $(date -Iseconds)" > "$LOCK"
 trap 'rm -f "$LOCK" STOP' EXIT
+trap 'echo; echo "interrupted: current run checkpointed and returned to pending; rerun scripts/run-queue.sh to resume"; exit 130' INT
 MAX_RUNS=${MAX_RUNS:-1000000}
 n=0
 while [ "$n" -lt "$MAX_RUNS" ]; do

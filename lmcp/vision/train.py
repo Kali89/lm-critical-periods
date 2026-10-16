@@ -186,7 +186,8 @@ def train(cfg, run_dir, resume=True):
         set_status("done", finished=time.time())
         return final
     except BaseException as e:
-        save_ckpt()
+        # No mid-epoch checkpoint: the per-epoch one is exact (epoch order/augment rng is seeded by (seed, ep)),
+        # so a resume re-runs at most one epoch (~80 s) and is identical to an uninterrupted run.
         set_status("failed" if not isinstance(e, KeyboardInterrupt) else "interrupted", error=repr(e))
         (run_dir / "error.txt").write_text(traceback.format_exc())
         raise

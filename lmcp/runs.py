@@ -79,9 +79,12 @@ def next_run():
     try:
         train(spec["config"], RUNS / rn, resume=True)
         ok = True
+    except KeyboardInterrupt:
+        claimed.rename(PENDING / claimed.name)   # interrupted, not failed: it resumes from its checkpoint next time
+        raise
     finally:
-        dest = (DONE if ok else FAILED) / claimed.name
-        claimed.rename(dest)
+        if claimed.exists():
+            claimed.rename((DONE if ok else FAILED) / claimed.name)
     return rn, ok
 
 

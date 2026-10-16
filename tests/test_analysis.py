@@ -124,7 +124,8 @@ def test_real_results_graceful():
     assert isinstance(why, str)
     t = A.mixed_model(res, "blimp_acc")
     assert t.attrs["method"] in ("ols_hc3", "none")
-    assert A.predict_window_from_plasticity(cur) is None
+    w = A.predict_window_from_plasticity(cur)   # None until some run has plasticity metrics
+    assert w is None or 0.0 <= w["mean_frac_peak"] <= 1.0
     d = A.prereg_numbers(REAL, n_sims=200)
     assert "Power" in A.render_prereg_numbers(d)
 
