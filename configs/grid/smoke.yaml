@@ -1,0 +1,17 @@
+# End-to-end smoke test. Tiny model, 3M tokens, two runs. ~2-3 minutes each on an M3 Max.
+name: smoke
+overrides:
+  model.size: xs
+  train.tokens: 3_000_000
+  train.batch_tokens: 16384
+  train.schedule: const
+  eval.every_tokens: 1_000_000
+  eval.val_tokens: 100_000
+  eval.blimp_per_paradigm: 20
+  eval.blimp_final_full: false
+  checkpoint.every_tokens: 1_500_000
+axes:
+  corruption:
+    - {kind: clean}
+    - {kind: shuffle_sentence, window: [0.0, 0.5]}
+  train.seed: [0]

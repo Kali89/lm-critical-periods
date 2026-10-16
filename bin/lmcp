@@ -1,0 +1,3 @@
+#!/bin/bash
+# Thin shim so every command is ./lmcp <subcommand>, always with the project venv.
+cd "$(dirname "$0")/.." && exec .venv/bin/python -m lmcp "$@"

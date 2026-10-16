@@ -1,0 +1,46 @@
+# Defaults for every run. Grids and CLI --set overrides layer on top of this.
+data:
+  corpus: babylm100m        # babylm100m | babylm10m | tinystories
+  variant: clean            # babylm only: clean (CLIMB-cleaned) | original
+  tokenizer_vocab: 8192
+  seq_len: 512
+
+model:
+  size: m                   # xs | s | m | l  (see lmcp/config.py SIZES); or set n_layer/d_model/n_head
+  n_layer: null
+  d_model: null
+  n_head: null
+
+train:
+  tokens: 200_000_000       # total token budget. "early" is always a fraction of this.
+  batch_tokens: 32768       # tokens per optimizer step
+  lr: 1.0e-3
+  min_lr_frac: 0.1
+  schedule: wsd             # const | wsd | cosine.  Use const or wsd for critical-period arms; cosine confounds.
+  warmup_frac: 0.02
+  decay_frac: 0.15          # wsd: last 15% of steps decay linearly to min_lr
+  weight_decay: 0.1
+  grad_clip: 1.0
+  seed: 0
+  log_every: 20
+
+corruption:
+  kind: clean               # clean | shuffle_sentence | shuffle_doc_sentences | shuffle_window | char_noise | short_context | label_noise
+  param: null               # char_noise: p (0.1) | shuffle_window: k (5) | short_context: block (32) | label_noise: p (0.3)
+  window: null              # [start_frac, end_frac] of the token budget during which the corruption applies
+
+eval:
+  every_tokens: 10_000_000
+  val_tokens: 1_000_000
+  blimp_per_paradigm: 100   # pairs per paradigm at interim evals
+  blimp_final_full: true    # all 1000 pairs per paradigm at the end
+  blimp_lowercase: true     # the BabyLM 'clean' variant is fully lowercased; set false for cased corpora
+  induction_len: 64
+  induction_batches: 8
+
+checkpoint:
+  final: true
+  every_tokens: 25_000_000  # resumable checkpoints; set null to disable
+
+run:
+  tag: ""

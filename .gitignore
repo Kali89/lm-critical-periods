@@ -1,0 +1,9 @@
+.venv/
+data/
+runs/
+queue/
+__pycache__/
+*.pyc
+.DS_Store
+notebooks/.ipynb_checkpoints/
+STOP

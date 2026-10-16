@@ -1,0 +1,9 @@
+mlx>=0.32
+numpy
+tokenizers
+pyyaml
+pandas
+pyarrow
+huggingface_hub
+tqdm
+regex

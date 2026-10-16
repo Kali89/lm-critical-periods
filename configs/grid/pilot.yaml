@@ -1,0 +1,27 @@
+# Pilot: does early structural corruption leave a deficit the clean tail cannot repair?
+# Design: removal-time sweep (corrupt from 0 to t, then clean) for two corruptions, plus a late window as the
+# recency control, constant LR so the schedule cannot explain a deficit. 3 seeds. 'm' model (~14M params),
+# 100M tokens (~0.75 epoch of BabyLM-100M). Roughly 1h per run on an M3 Max -> ~30 machine-hours in total.
+# Required streams: bin/lmcp tok encode --kind shuffle_sentence ; bin/lmcp tok encode --kind shuffle_doc_sentences
+name: pilot
+overrides:
+  model.size: m
+  train.tokens: 100_000_000
+  train.schedule: const
+  eval.every_tokens: 5_000_000
+axes:
+  corruption:
+    - {kind: clean}
+    - {kind: shuffle_sentence, window: [0.0, 0.1]}
+    - {kind: shuffle_sentence, window: [0.0, 0.25]}
+    - {kind: shuffle_sentence, window: [0.0, 0.5]}
+    - {kind: shuffle_sentence, window: [0.5, 0.75]}      # same-length window, late onset: recency control
+    - {kind: short_context, param: 32, window: [0.0, 0.25]}
+    - {kind: short_context, param: 32, window: [0.0, 0.5]}
+    - {kind: short_context, param: 32, window: [0.5, 0.75]}
+  train.seed: [0, 1, 2]
+extra_runs:
+  # matched-clean-tokens control: a clean run with only the tokens the 0-0.5 arms saw clean
+  - {corruption: {kind: clean}, train.tokens: 50_000_000, train.seed: 0}
+  - {corruption: {kind: clean}, train.tokens: 50_000_000, train.seed: 1}
+  - {corruption: {kind: clean}, train.tokens: 50_000_000, train.seed: 2}

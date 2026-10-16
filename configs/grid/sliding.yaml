@@ -1,0 +1,16 @@
+# Sliding-window sweep: a fixed-length corruption window at increasing onsets. The deficit-vs-onset curve is the
+# sensitivity curve. Run AFTER the pilot shows a deficit exists. Add kinds/seeds as the pilot suggests.
+name: sliding
+overrides:
+  model.size: m
+  train.tokens: 100_000_000
+  train.schedule: const
+  eval.every_tokens: 5_000_000
+axes:
+  corruption.kind: [shuffle_sentence]
+  corruption.window: [[0.0, 0.15], [0.15, 0.30], [0.30, 0.45], [0.45, 0.60], [0.60, 0.75], [0.75, 0.90]]
+  train.seed: [0, 1, 2]
+extra_runs:
+  - {corruption: {kind: clean}, train.seed: 0}
+  - {corruption: {kind: clean}, train.seed: 1}
+  - {corruption: {kind: clean}, train.seed: 2}
