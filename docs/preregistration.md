@@ -494,3 +494,10 @@ Fisher trace uninformative (peak at init); ability landmarks (mean point reachin
 | baselines__clean__wnone__s__const__s0__633f90 | 0.000 | 0.166 |
 | baselines__clean__wnone__s__const__s1__64e8fe | 0.000 | 0.166 |
 | baselines__clean__wnone__s__const__s1__670d90 | 0.000 | 0.042 |
+
+## Amendment 2026-10-19: registered
+
+Registered on OSF on 2026-10-19 at commit 2897d7dbc314b77a9f75f7e84f5c9add1a0fb117.
+Registration: https://osf.io/xpdtr/ (DOI 10.17605/OSF.IO/XPDTR once the registration is public). Project: https://osf.io/f6gk5/.
+No corrupted run had started. The text above this line is the registered protocol; later changes appear only as
+dated amendments below it.

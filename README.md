@@ -14,7 +14,7 @@ found no critical period for *which language* arrives when in LM pretraining. Bo
 controls (`configs/grid/vision_control.yaml`, `configs/grid/constantinescu.yaml`).
 
 Everything runs on one laptop. Operating rules, phases and gates, model tiers, hardware rules: `program.md`.
-Pre-registration template: `docs/preregistration.md`.
+Pre-registration: `docs/preregistration.md`, registered on OSF 2026-10-19 (https://osf.io/xpdtr/, project https://osf.io/f6gk5/).
 
 ## What is in the box
 
