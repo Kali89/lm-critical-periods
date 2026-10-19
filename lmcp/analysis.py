@@ -13,9 +13,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ABILITY_METRICS = ("blimp_acc", "induction_acc", "induction_gain", "long_range_gain")
-SUMMARY_METRICS = ("val_loss",) + ABILITY_METRICS
-CHANCE = {"blimp_acc": 0.5, "induction_acc": 0.0, "induction_gain": 0.0, "long_range_gain": 0.0}
+ABILITY_METRICS = ("blimp_acc", "induction_acc", "induction_gain", "long_range_gain", "context_gain")
+# loss-like metrics: chance is the uniform-guess loss log(vocab), exactly as for val_loss. They are summarised but
+# not proposed as the primary endpoint (their snr against uniform-guess loss is always huge, like val_loss's).
+LOSS_METRICS = ("val_loss", "val_loss_ctx_32", "val_loss_ctx_full")
+SUMMARY_METRICS = LOSS_METRICS + ABILITY_METRICS
+CHANCE = {"blimp_acc": 0.5, "induction_acc": 0.0, "induction_gain": 0.0, "long_range_gain": 0.0, "context_gain": 0.0}
+MECHANISM_ENDPOINTS = ("val_loss_ctx_32", "context_gain", "blimp_acc")
+# registered smallest effects of interest, docs/preregistration.md 2026-10-19
+MIN_EFFECTS = {"val_loss_ctx_32": 0.016, "context_gain": 0.0175, "blimp_acc": 0.010}
 BASE_KEYS = ["model.size", "train.schedule", "train.tokens"]
 
 
@@ -81,12 +87,37 @@ def load_results(results_dir="results"):
     return res, cur
 
 
+def _grid_col(res):
+    cols = [c for c in res.columns if c.endswith("grid")]
+    return "run.grid" if "run.grid" in cols else (cols[0] if cols else None)
+
+
+def filter_grids(res, cur, grids):
+    """Restrict results to rows whose grid is in `grids` and curves to the runs that remain.
+    grids falsy -> inputs returned unchanged."""
+    if not grids:
+        return res, cur
+    col = _grid_col(res)
+    if col is None:
+        raise ValueError("results have no grid column; cannot apply --grid")
+    res = res[res[col].isin(list(grids))].copy()
+    if cur is not None and len(cur) and "run" in cur:
+        cur = cur[cur["run"].isin(set(res["run"]))].copy()
+    return res, cur
+
+
+def pooled_grids(res):
+    col = _grid_col(res) if res is not None and len(res) else None
+    return sorted(res[col].dropna().astype(str).unique()) if col else []
+
+
 def _done(df):
     return df[df["status"] == "done"] if "status" in df else df
 
 
 # ------------------------------------------------------------------------------------------- landmarks
-def landmarks(curves_df, metrics=("blimp_acc", "induction_acc", "long_range_gain"), min_range=0.02):
+def landmarks(curves_df, metrics=("blimp_acc", "induction_acc", "long_range_gain", "val_loss_ctx_32", "context_gain"),
+              min_range=0.02):
     """Acquisition point per run and metric: first eval after which the metric stays beyond the midpoint
     between its chance (blimp 0.5) or initial value and its final value. NaN frac/tokens if never acquired,
     or if the metric moved less than `min_range` from chance (not acquired at all; avoids calling noise a
@@ -138,7 +169,7 @@ def baseline_summary(results_df, metrics=SUMMARY_METRICS):
             v = g[m].dropna().to_numpy(float)
             if len(v) == 0:
                 continue
-            if m == "val_loss":
+            if m in LOSS_METRICS:
                 vocab = g["data.tokenizer_vocab"].iloc[0] if "data.tokenizer_vocab" in g else np.nan
                 chance = math.log(vocab) if vocab == vocab else np.nan     # uniform-guess loss
             else:
@@ -300,20 +331,98 @@ def dose_response(results_df, metric, kind, window):
 
 
 # ------------------------------------------------------------------------------------------- power
-def power_simulation(seed_sd, effect_sizes, n_seeds=(2, 3, 4, 5, 6, 8), alpha=0.05, n_sims=2000, seed=0):
-    """Welch t-test power for a mean difference between a corrupted arm and the clean arm (equal n per arm,
-    Normal seed noise with SD `seed_sd` in both arms). Effects are in metric units; effect_sd = effect/sd."""
+def power_simulation(seed_sd, effect_sizes, n_seeds=(2, 3, 4, 5, 6, 8), alpha=0.05, n_sims=2000, seed=0,
+                     n_clean=None, n_arm=None, sd_mult=None):
+    """Welch t-test power for a mean difference between a corrupted arm and the clean arm (Normal seed noise,
+    SD `seed_sd` * sd_mult in both arms). Effects are in metric units; effect_sd = effect / (seed_sd * mult).
+
+    Legacy call (n_clean and n_arm both None): equal n per arm taken from `n_seeds`, no SD scaling.
+    n_clean: clean-arm size (int, default = the arm's n). n_arm: corrupted-arm size(s) (int or sequence,
+    default `n_seeds`). sd_mult: SD multipliers; None -> (1.0, 2.0, 3.0) when n_clean/n_arm is given, else (1.0,).
+    Returns columns effect, effect_sd, n (= corrupted-arm size), n_clean, n_arm, sd_mult, power."""
     from scipy import stats
     rng = np.random.default_rng(seed)
+    legacy = n_clean is None and n_arm is None
+    arms = n_seeds if n_arm is None else n_arm
+    arms = [int(arms)] if np.isscalar(arms) else [int(n) for n in arms]
+    if sd_mult is None:
+        sd_mult = (1.0,) if legacy else (1.0, 2.0, 3.0)
+    mults = [float(sd_mult)] if np.isscalar(sd_mult) else [float(m) for m in sd_mult]
     rows = []
-    for eff in effect_sizes:
-        for n in n_seeds:
-            a = rng.normal(0.0, seed_sd, size=(n_sims, n))
-            b = rng.normal(eff, seed_sd, size=(n_sims, n))
-            with np.errstate(all="ignore"):
-                p = stats.ttest_ind(b, a, axis=1, equal_var=False).pvalue
-            rows.append(dict(effect=float(eff), effect_sd=float(eff / seed_sd) if seed_sd else np.nan, n=int(n),
-                             power=float(np.mean(p < alpha))))
+    for mult in mults:
+        sd = seed_sd * mult
+        for eff in effect_sizes:
+            for n in arms:
+                nc = int(n_clean) if n_clean is not None else n
+                a = rng.normal(0.0, sd, size=(n_sims, nc))
+                b = rng.normal(eff, sd, size=(n_sims, n))
+                with np.errstate(all="ignore"):
+                    p = stats.ttest_ind(b, a, axis=1, equal_var=False).pvalue
+                rows.append(dict(effect=float(eff), effect_sd=float(eff / sd) if sd else np.nan, n=int(n),
+                                 n_clean=nc, n_arm=int(n), sd_mult=mult, power=float(np.mean(p < alpha))))
+    return pd.DataFrame(rows)
+
+
+def _holm_rows(p):
+    """Holm-adjusted p-values along the last axis of a 2-D array (vectorised over rows)."""
+    m = p.shape[1]
+    order = np.argsort(p, axis=1)
+    ps = np.take_along_axis(p, order, axis=1)
+    adj = np.minimum(1.0, np.maximum.accumulate((m - np.arange(m)) * ps, axis=1))
+    out = np.empty_like(adj)
+    np.put_along_axis(out, order, adj, axis=1)
+    return out
+
+
+# The registered H1 confirmatory family (docs/preregistration.md, H1): one corrupted-vs-clean test per corruption at
+# 600M, each mapped to one endpoint. Ordered (label, endpoint) pairs; Holm is taken across all members.
+H1_FAMILY = [("shuffle_sentence", "val_loss_ctx_32"), ("shuffle_doc_sentences", "context_gain"),
+             ("short_context", "context_gain")]
+
+
+def power_confirmatory(seed_sd, effects, family=H1_FAMILY, rho=(-0.5, 0.0, 0.5), sd_mult=(1.0, 2.0, 3.0), n_pairs=4,
+                       n_clean_extra=2, alpha=0.05, n_sims=4000, seed=0):
+    """Simulated power of the registered H1 procedure: one corrupted-vs-clean test per `family` member, Holm across them.
+
+    seed_sd, effects: dicts keyed by endpoint (every effect is a deficit in the harmful direction, so treated as
+    positive). family: ordered list of (label, endpoint). Seeds 0..n_pairs-1 have a clean and a corrupted run; clean seeds
+    n_pairs..n_pairs+n_clean_extra-1 are independent extra clean runs. Clean runs are simulated once per endpoint per
+    simulation and shared by every family member on that endpoint (both are compared with the same clean reference);
+    each member draws its own corrupted runs. Per endpoint, clean_s = u_s + e1_s and corrupt_s = sign(rho) * u_s + e2_s +
+    effect with u_s ~ N(0, |rho| sd^2), e ~ N(0, (1-|rho|) sd^2), so each run has variance sd^2 and corr(clean_s,
+    corrupt_s) = rho (rho < 0 gives the anti-correlated case). Extra clean runs are N(0, sd^2). Endpoints are simulated
+    independently. Analyses, one-sided at alpha, Holm across the family: "paired" = paired t on the n_pairs pairs
+    (df n_pairs-1); "welch" = Welch t, all n_pairs+n_clean_extra clean vs n_pairs corrupted, ignoring pairing.
+    Returns columns label, endpoint, analysis, rho, sd_mult, power (label = endpoint = "all three" is the joint
+    rejection probability)."""
+    from scipy import stats
+    rng = np.random.default_rng(seed)
+    eps = list(dict.fromkeys(ep for _, ep in family))
+    rows = []
+    for r in ([float(rho)] if np.isscalar(rho) else [float(x) for x in rho]):
+        for mult in ([float(sd_mult)] if np.isscalar(sd_mult) else [float(x) for x in sd_mult]):
+            pp = np.empty((n_sims, len(family)))
+            pw = np.empty((n_sims, len(family)))
+            ar = abs(r)
+            for ep in eps:
+                sd = seed_sd[ep] * mult
+                u = rng.normal(0.0, sd * math.sqrt(ar), size=(n_sims, n_pairs))
+                clean = u + rng.normal(0.0, sd * math.sqrt(1 - ar), size=(n_sims, n_pairs))
+                extra = rng.normal(0.0, sd, size=(n_sims, n_clean_extra))
+                all_clean = np.concatenate([clean, extra], axis=1)
+                for k, (_, fep) in enumerate(family):
+                    if fep != ep:
+                        continue
+                    corr = math.copysign(1.0, r) * u + rng.normal(0.0, sd * math.sqrt(1 - ar), size=(n_sims, n_pairs)) + effects[ep]
+                    with np.errstate(all="ignore"):
+                        pp[:, k] = stats.ttest_rel(corr, clean, axis=1, alternative="greater").pvalue
+                        pw[:, k] = stats.ttest_ind(corr, all_clean, axis=1, equal_var=False, alternative="greater").pvalue
+            for name, pv in (("paired", pp), ("welch", pw)):
+                rej = _holm_rows(np.nan_to_num(pv, nan=1.0)) < alpha
+                for k, (lab, ep) in enumerate(family):
+                    rows.append(dict(label=lab, endpoint=ep, analysis=name, rho=r, sd_mult=mult, power=float(rej[:, k].mean())))
+                rows.append(dict(label="all three", endpoint="all three", analysis=name, rho=r, sd_mult=mult,
+                                 power=float(rej.all(axis=1).mean())))
     return pd.DataFrame(rows)
 
 
@@ -341,12 +450,53 @@ def predict_window_from_plasticity(curves_df, metric="plast/fisher_trace", resul
     if not rows:
         return None
     pr = pd.DataFrame(rows)
-    return dict(per_run=pr, mean_frac_peak=float(pr["frac_peak"].mean()), mean_frac_half=float(pr["frac_half"].mean()))
+    mean_peak = float(pr["frac_peak"].mean())
+    # monotone non-increasing after the first eval point -> the "peak" is just the init value
+    mono = all(bool(np.all(np.diff(g.sort_values("step").dropna(subset=[metric])[metric].to_numpy(float)) <= 0))
+               for _, g in c.groupby("run") if g[metric].notna().sum() >= 2)
+    informative = not (mean_peak == 0 or mono)
+    out = dict(per_run=pr, mean_frac_peak=mean_peak, mean_frac_half=float(pr["frac_half"].mean()),
+               informative=informative)
+    if not informative:
+        out["fallback"] = _landmark_window(curves_df, set(pr["run"]))
+    return out
+
+
+def _landmark_window(curves_df, runs, metrics=("blimp_acc", "induction_acc", "long_range_gain")):
+    """Ability-landmark window: mean frac/tokens at which each ability reaches half of its final value."""
+    lm = landmarks(curves_df[curves_df["run"].isin(runs)], metrics=metrics)
+    out = {}
+    for m in metrics:
+        g = lm[lm["metric"] == m] if len(lm) else lm
+        out[m] = dict(frac_half_mean=float(g["frac"].mean()) if len(g) else float("nan"),
+                      tokens_half_mean=float(g["tokens"].mean()) if len(g) else float("nan"))
+    return out
+
+
+def format_window(p):
+    """One-paragraph text for a predict_window_from_plasticity result."""
+    if p is None:
+        return "no plasticity metric in curves yet"
+    if p.get("informative", True):
+        return (f"Mean frac of peak: {p['mean_frac_peak']:.3f}; mean frac where it first falls below 50% of peak: "
+                f"{p['mean_frac_half']:.3f}")
+    fb = "; ".join(f"{m}: frac {v['frac_half_mean']:.3f}, tokens {v['tokens_half_mean']:.4g}"
+                   for m, v in p["fallback"].items())
+    return f"Fisher trace uninformative (peak at init); ability landmarks (mean point reaching half of final value): {fb}"
 
 
 # ----------------------------------------------------------------------------------------- prereg
-def prereg_numbers(results_dir="results", effect_sds=(0.5, 1, 2, 3), n_sims=2000):
-    res, cur = load_results(results_dir)
+def _endpoint_sd(summ, metric):
+    """(seed SD, n seeds) of `metric` in its best-populated clean baseline group, or (nan, 0) if absent/not estimable."""
+    if summ is None or len(summ) == 0 or metric not in set(summ["metric"]):
+        return np.nan, 0
+    top = summ[summ["metric"] == metric].sort_values(["n", "train.tokens"], ascending=False).iloc[0]
+    return float(top["sd"]), int(top["n"])
+
+
+def prereg_numbers(results_dir="results", effect_sds=(0.5, 1, 2, 3), n_sims=2000, grids=None, min_effects=None,
+                   n_clean=6, n_arms=(3, 4, 5, 6), sd_mult=(1.0, 2.0, 3.0), endpoints=MECHANISM_ENDPOINTS):
+    res, cur = filter_grids(*load_results(results_dir), grids)
     summ = baseline_summary(res)
     metric, why = propose_primary(summ)
     sd = np.nan
@@ -355,8 +505,23 @@ def prereg_numbers(results_dir="results", effect_sds=(0.5, 1, 2, 3), n_sims=2000
         sd = float(top["sd"])
     unit = sd if sd == sd and sd > 0 else 1.0           # power depends only on effect/SD; fall back to SD units
     power = power_simulation(unit, [k * unit for k in effect_sds], n_sims=n_sims)
-    return dict(baseline_summary=summ, primary=metric, primary_justification=why, primary_seed_sd=sd,
-                power=power, plasticity=predict_window_from_plasticity(cur, results_df=res),
+    me = {**MIN_EFFECTS, **(min_effects or {})}
+    endpoint_power = {}
+    for ep in endpoints:
+        esd, en = _endpoint_sd(summ, ep)
+        eff = me.get(ep, np.nan)
+        tbl = None
+        if esd == esd and esd > 0 and eff == eff:
+            tbl = power_simulation(esd, [eff], n_sims=n_sims, n_clean=n_clean, n_arm=n_arms, sd_mult=sd_mult)
+        endpoint_power[ep] = dict(sd=esd, n_seeds=en, min_effect=eff, table=tbl)
+    fam_eps = list(dict.fromkeys(ep for _, ep in H1_FAMILY))
+    sds = {ep: endpoint_power[ep]["sd"] for ep in fam_eps if ep in endpoint_power}
+    if len(sds) == len(fam_eps) and all(v == v and v > 0 for v in sds.values()) and all(me.get(ep, np.nan) == me.get(ep, np.nan) for ep in fam_eps):
+        confirmatory = power_confirmatory(sds, {ep: me[ep] for ep in fam_eps}, n_sims=max(n_sims, 4000))
+    else:
+        confirmatory = "not rescored"
+    return dict(baseline_summary=summ, confirmatory_power=confirmatory, primary=metric, primary_justification=why, primary_seed_sd=sd,
+                power=power, endpoint_power=endpoint_power, n_clean_arm=n_clean, plasticity=predict_window_from_plasticity(cur, results_df=res),
                 n_runs=len(res), n_clean=int((res["corruption.kind"] == "clean").sum()) if len(res) else 0)
 
 
@@ -370,21 +535,61 @@ def _md(df, fmt="{:.3f}"):
 
 
 def render_prereg_numbers(d):
-    s = ["## Baseline summary (clean runs; seed SD, snr = |mean - chance| / SD)", "", _md(d["baseline_summary"]), "",
-         "## Proposed primary metric (proposal only)", "", f"**{d['primary']}**: {d['primary_justification']}", ""]
+    s = ["## Baseline summary (clean runs; seed SD, snr = |mean - chance| / SD)", "", _md(d["baseline_summary"]), ""]
     sd = d["primary_seed_sd"]
-    s += ["## Power (simulated Welch t-test, equal n per arm, alpha 0.05)", "",
-          f"Seed SD of primary metric: {sd:.4g}" if sd == sd else
-          "Seed SD not yet estimable (need >=2 clean seeds); effects shown in SD units, which fully determines power.", ""]
+    pow_lines = ["## Power (simulated Welch t-test, equal n per arm, alpha 0.05)", "",
+                 f"Seed SD of primary metric: {sd:.4g}" if sd == sd else
+                 "Seed SD not yet estimable (need >=2 clean seeds); effects shown in SD units, which fully determines power.", ""]
     if len(d["power"]):
         pv = d["power"].pivot(index="effect_sd", columns="n", values="power").reset_index()
         pv.columns = ["effect (SD)"] + [f"n={c}" for c in pv.columns[1:]]
-        s.append(_md(pv, "{:.2f}"))
+        pow_lines.append(_md(pv, "{:.2f}"))
+    s += [f"## Power for the mechanism-mapped endpoints (Welch, n_clean={d.get('n_clean_arm', 6)} vs n_arm, alpha 0.05)", "",
+          "Seed SD from the clean baselines at the best-populated group; the 2x/3x rows are what the SD might be "
+          "if the baseline SD is underestimated. Effect = smallest effect of interest, in the metric's own units.", ""]
+    for ep, e in (d.get("endpoint_power") or {}).items():
+        s += [f"### {ep}", ""]
+        if e["sd"] != e["sd"]:
+            s += ["_not rescored_ (metric absent from clean baseline results, or fewer than 2 seeds: run "
+                  "`bin/lmcp rescore` on the finished baselines, then re-run prereg)", ""]
+            continue
+        s += [f"seed SD {e['sd']:.4g} (n={e['n_seeds']} seeds); effect {e['min_effect']:g}", ""]
+        pv = e["table"].pivot(index="sd_mult", columns="n_arm", values="power").reset_index()
+        pv.columns = ["SD multiplier"] + [f"n_arm={c}" for c in pv.columns[1:]]
+        pv["SD multiplier"] = pv["SD multiplier"].map(lambda m: f"{m:g}x (SD {e['sd'] * m:.4g})")
+        s += [_md(pv, "{:.2f}"), ""]
+    s += ["## Power of the registered confirmatory procedure (one-sided Welch t, 6 clean vs 4 per arm, Holm across the "
+          "three H1 tests, alpha 0.05)", ""]
+    cp = d.get("confirmatory_power")
+    if cp is None or isinstance(cp, str):
+        s += ["_not rescored_ (an endpoint SD is missing: run `bin/lmcp rescore` on the finished baselines, then re-run prereg)", ""]
+    else:
+        s += ["Pairing by seed is reported as a sensitivity analysis because the within-seed correlation is unknown; the "
+              "paired test only beats Welch when that correlation exceeds about 0.5.", "",
+              "All three true effects (the registered smallest effects of interest) present at once; seed SD scaled by the "
+              "multiplier; rho = correlation between a seed's clean and corrupted run. Columns are the three H1 tests "
+              "(corruption vs clean, with its mapped endpoint: shuffle_sentence on val_loss_ctx_32, shuffle_doc_sentences "
+              "and short_context on context_gain); entries are the probability each test is rejected after Holm; "
+              "'all three' = all rejected.", ""]
+        for analysis, head, lvl in (("welch", None, "###"),
+                                    ("paired", "### Sensitivity: paired t over the 4 seed pairs (df = 3)", "####")):
+            if head:
+                s += [head, ""]
+            for mult in sorted(cp["sd_mult"].unique()):
+                sub = cp[(cp["analysis"] == analysis) & (cp["sd_mult"] == mult)]
+                if not len(sub):
+                    continue
+                pv = sub.pivot(index="rho", columns="label", values="power")
+                cols = list(dict.fromkeys(lab for lab, _ in H1_FAMILY)) + ["all three"]
+                pv = pv[cols].reset_index()
+                s += [f"{lvl} SD multiplier {mult:g}x", "", _md(pv, "{:.2f}"), ""]
+    s += ["## Historical (superseded 2026-10-19; kept for the audit trail)", "",
+          "## Proposed primary metric (proposal only)", "", f"**{d['primary']}**: {d['primary_justification']}", ""]
+    s += pow_lines
     s += ["", "## Plasticity-predicted window", ""]
     p = d["plasticity"]
     if p is None:
         s.append("_no plasticity metric in curves yet_")
     else:
-        s += [f"Mean frac of peak: {p['mean_frac_peak']:.3f}; mean frac where it first falls below 50% of peak: "
-              f"{p['mean_frac_half']:.3f}", "", _md(p["per_run"])]
+        s += [format_window(p), "", _md(p["per_run"])]
     return "\n".join(s) + "\n"

@@ -35,8 +35,11 @@ def expand_grid(grid_path):
     return name, out
 
 
-def enqueue(grid_path, dry=False):
+def enqueue(grid_path, dry=False, seeds=None):
+    """seeds: optional set of train.seed values to queue (splits one grid across machines without editing it)."""
     name, runs = expand_grid(grid_path)
+    if seeds is not None:
+        runs = [(rn, cfg) for rn, cfg in runs if int(cfg["train"]["seed"]) in seeds]
     for d in (PENDING, RUNNING, DONE, FAILED):
         d.mkdir(parents=True, exist_ok=True)
     added, skipped = [], []
@@ -106,6 +109,9 @@ def flatten(d, prefix=""):
     return out
 
 
+RESCORE_META = ("which", "tokens", "rescored_at", "rev")
+
+
 def collect():
     RESULTS.mkdir(exist_ok=True)
     rows, curves = [], []
@@ -122,10 +128,19 @@ def collect():
             continue
         for m in metrics:
             curves.append({"run": rd.name, **{k: v for k, v in m.items() if k != "blimp_paradigms"}})
-        final = metrics[-1]
+        final = dict(metrics[-1])
+        rescored = False
+        rp = rd / "rescore.jsonl"
+        if rp.exists():
+            rl = [json.loads(l) for l in rp.read_text().splitlines() if l.strip()]
+            rl = [r for r in rl if r.get("which") == "final"]
+            if rl:       # add-only: never overwrite anything measured during training
+                add = {k: v for k, v in rl[-1].items() if k not in final and k not in RESCORE_META}
+                final.update(add)
+                rescored = bool(add)
         row = {"run": rd.name, "status": status["status"], "elapsed_min": status.get("elapsed_min"),
                **flatten(conf["config"]), "n_params": conf["info"]["n_params"], "git_rev": conf["info"].get("git_rev"),
-               **{k: v for k, v in final.items() if k != "blimp_paradigms"}}
+               **{k: v for k, v in final.items() if k != "blimp_paradigms"}, "rescored": rescored}
         rows.append(row)
     with open(RESULTS / "results.jsonl", "w") as f:
         for r in rows:

@@ -64,3 +64,24 @@ using bilinear interpolation ... After that, the training continues for 160 more
 (removed at epoch 180), i.e. a deficit of order 10 points, "remarkably sharper" than the All-CNN. Figure 2:
 vertical flip and label permutation show no lasting deficit; noise a smaller one. `configs/grid/vision_control.yaml`
 matches these settings.
+
+## Result (gate check, 2026-10-18; 18 runs, harness revision f3bc811, one M3 Max, ~51 s/epoch)
+
+Final CIFAR-10 test accuracy, mean of 3 seeds (seed SD in brackets), deficit against clean in points:
+
+| arm | epochs | accuracy | deficit |
+|---|---|---|---|
+| clean | 160 | 0.9493 (0.0017) | 0 |
+| blur, epochs 0-20, then 160 clean | 180 | 0.9356 (0.0038) | 1.4 |
+| blur, epochs 0-40, then 160 clean | 200 | 0.9092 (0.0098) | 4.0 |
+| blur, epochs 0-80, then 160 clean | 240 | 0.8550 (0.0090) | 9.4 |
+| blur, epochs 80-120 of 200 (late, same length as 0-40) | 200 | 0.9257 (0.0012) | 2.4 |
+| label permutation, epochs 0-40, then 160 clean | 200 | 0.9504 (0.0009) | -0.1 |
+
+Gate: **passed**. The deficit grows monotonically with how long the blur lasts (every step is many seed SDs),
+label permutation leaves none (Achille et al. Fig. 2), clean accuracy and the ~9-10 point deficit at long
+exposure match Fig. 3. Caveat recorded for the write-up: the late window does not recover fully (2.4 points
+versus 4.0 for the same 40 epochs placed early). Under the paper's exponential schedule the late window ends
+at epoch 120 where the learning rate is already 0.1 x 0.97^120 = 0.0026, so recovery is limited by the
+schedule as well as by onset. This is the confound the LM grids avoid by training at a constant learning
+rate; the vision control therefore shows onset dependence, not a clean zero at late onset.

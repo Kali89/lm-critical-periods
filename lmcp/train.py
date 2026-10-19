@@ -7,7 +7,9 @@ Run directory layout (runs/<name>/):
   status.json        running | done | failed | interrupted, with step/tokens/timestamps
   train_curve.jsonl  every log_every steps: loss, lr, phase, throughput, epochs (loss bumps = phase transitions)
   metrics.jsonl      one line per eval: val loss by position (per val stream), BLiMP by term with bootstrap CIs,
-                     induction, plasticity (Fisher trace, norms, effective ranks)
+                     induction, plasticity (Fisher trace, norms, effective ranks), and reader_doc_mean/min/max
+                     (position in the seed's document permutation being read by the B readers; allows a
+                     document-exposure audit at every eval)
   ckpt/              resumable checkpoint (model + optimizer + reader cursor)
   final/model.safetensors
 """
@@ -269,10 +271,13 @@ def train(cfg, run_dir, resume=True):
         if plasticity is not None and ev.get("plasticity", True):
             m.update(plasticity.metrics(model, probe, mask_full, vocab, n_fisher_seqs=n_probe))
         m.update({"step": step, "tokens": step * B * T, "frac": step / total_steps, "final": final,
-                  "epochs": float(reader.epochs.mean()), "eval_seconds": round(time.time() - t0, 1)})
+                  "epochs": float(reader.epochs.mean()), "eval_seconds": round(time.time() - t0, 1),
+                  "reader_doc_mean": float(np.mean(reader.doc)), "reader_doc_min": int(np.min(reader.doc)),
+                  "reader_doc_max": int(np.max(reader.doc))})
         append_jsonl(metrics_p, m)
         extra = f"  fisher {m['plast/fisher_trace']:.3g}" if "plast/fisher_trace" in m else ""
         print(f"  eval step {step}: val {m['val_loss']:.3f}  blimp {m['blimp_acc']:.3f}  "
+              f"ctx32 {m['val_loss_ctx_32']:.3f} gain {m['context_gain']:.3f}  "
               f"induction_acc {m['induction_acc']:.3f}  long_range_gain {m['long_range_gain']:.3f}{extra}  ({m['eval_seconds']}s)", flush=True)
         return m
 

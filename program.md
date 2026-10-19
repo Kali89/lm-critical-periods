@@ -5,7 +5,8 @@ This file is the operating manual for anyone (human or agent) working in this re
 ## What we are testing
 
 Whether corrupting a language model's *input structure* during an early window of pretraining leaves a
-permanent, ability-specific deficit that later clean training cannot repair (a "critical period"), and if so,
+persistent, structure-specific deficit that later clean training does not repair (a "sensitive period" in
+the operational sense: training-stage-dependent vulnerability), and if so,
 which window hurts which ability. Background and design rationale: README.md.
 
 ## Phases and gates (each gate must pass before the next phase is queued)
@@ -16,8 +17,11 @@ which window hurts which ability. Background and design rationale: README.md.
    harness cannot be trusted to detect a sensitive period and no LM result is reported either way.
 3. **Clean baselines** — `configs/grid/baselines.yaml` (3 seeds, size m). Then `bin/lmcp analyze baseline`,
    `bin/lmcp analyze landmarks`, `bin/lmcp prereg --write`.
-4. **Pre-registration** — fill `docs/preregistration.md` from the prereg output: primary endpoint, seed count
-   from the power table, predicted window from the Fisher-trace curve. Commit. Record the hash on OSF.
+4. **Pre-registration** — fill `docs/preregistration.md` from the prereg output: endpoints mapped to
+   corruptions by mechanism (fixed before the baselines are scored), seed count from the simulated
+   confirmatory procedure, predicted windows from ability landmarks (the Fisher trace was uninformative
+   at a constant LR). Commit. Record the hash on OSF. Revised 2026-10-19 after two external design reviews
+   (`docs/context-eval-check-2026-10-19.md`, `docs/landmarks-baselines-2026-10-19.md`).
    The pilot grid is edited to the registered seed count and windows and committed in the same commit.
 5. **Pilot grid** (`configs/grid/pilot.yaml`) — includes the matched-token, late-window, vocabulary-permutation
    and extended-recovery controls and two dose levels. Analyse with `bin/lmcp analyze mixed` / `dose`.
@@ -53,8 +57,11 @@ are unchanged by the venue):
   are not requests to train. Queueing (`bin/lmcp grid`) is fine; draining (`scripts/run-queue.sh`) is not.
 - **One run per machine at a time**, always via `scripts/run-queue.sh` (caffeinate, AC-power and thermal
   checks, lock file). Never launch `bin/lmcp run` for anything longer than a smoke test.
-- **Do not edit `lmcp/` while a grid is in flight.** Each run records the git rev and a dirty flag; a mid-grid
-  code change makes the runs incomparable. Fix bugs, then re-run the grid under a new name.
+- **Do not edit training code under `lmcp/` while a grid is in flight.** Each run records the git rev and a dirty
+  flag; a mid-grid code change makes the runs incomparable. Fix bugs, then re-run the grid under a new name.
+  Exception (agreed 2026-10-17): analysis-only code may change mid-grid, namely `lmcp/analysis.py`,
+  `lmcp/stats.py` and the `analyze`/`prereg` subcommands in `lmcp/__main__.py`. These never run inside a
+  training process, so they cannot affect a run.
 - **Never delete `runs/`, `results/`, or `data/` contents.** Disk is cheap; re-running is not.
 - **Never `git commit` or `git push` on Matthew's behalf** unless asked. Grid pre-registration commits are his.
 - **No network calls from training code.** All downloads go through `bin/lmcp data` / `prepare-all`.
@@ -95,7 +102,8 @@ Nothing in the training loop calls a model; the loop is plain Python and costs n
     bin/lmcp queue status
     scripts/run-queue.sh                 drain the queue (MAX_RUNS=n to cap)
     bin/lmcp collect && bin/lmcp report  results/results.jsonl, results/curves.jsonl, mean/sd table
-    bin/lmcp analyze baseline|landmarks|mixed|dose|window   the real analysis (mixed model, CIs, dose, Fisher window)
+    bin/lmcp analyze baseline|landmarks|mixed|dose|window   the real analysis (mixed model, CIs, dose, landmark window)
+    bin/lmcp rescore RUN_DIR...                     re-evaluate saved checkpoints (eval only; never touches metrics.jsonl)
     bin/lmcp prereg --write              numbers for docs/preregistration.md
     .venv-torch/bin/python tools/export_tl.py runs/<name> --check      export a checkpoint, verify logits
     .venv-torch/bin/python tools/induction_heads.py exports/tl/<name>
@@ -107,9 +115,11 @@ Nothing in the training loop calls a model; the loop is plain Python and costs n
 
 - Document order is a per-seed permutation (`data.doc_order_seed`, default = train.seed), saved as
   runs/<name>/doc_order.npy. Without it a window is a fixed slice of the corpus and onset is confounded with content.
-- Every corrupted arm is compared with: the clean baseline, the matched-clean-tokens control, a late window
-  of the same length, and the vocabulary-permutation arm (a predicted null). A deficit that any of these
-  explains is not a sensitive period.
+- Every corrupted arm is compared with: the clean baseline, the no-exposure reference (the clean run's own
+  eval at the matched clean-token count), a late window of the same length, and the lexical-remapping arm
+  (vocabulary permutation: structure kept, token identity scrambled; both outcomes are pre-registered, a
+  deficit there does not falsify the structural claim). A deficit the late window or the no-exposure
+  reference explains is not a sensitive period.
 - Constant learning rate in critical-period arms. Plasticity (Fisher trace, norms, effective rank) is logged
   at every eval so a deficit can be related to measured plasticity, not asserted.
 - Seeds per cell come from `bin/lmcp prereg` (simulated power on baseline seed SD), not from habit. Three

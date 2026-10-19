@@ -117,7 +117,8 @@ def cmd_run(a):
 
 def cmd_grid(a):
     from .runs import enqueue
-    name, added, skipped = enqueue(a.grid, dry=a.dry)
+    seeds = {int(x) for x in a.seeds.split(",")} if a.seeds else None
+    name, added, skipped = enqueue(a.grid, dry=a.dry, seeds=seeds)
     print(f"grid {name}: {'would add' if a.dry else 'added'} {len(added)}, skipped {len(skipped)}")
     for r in added:
         print("  +", r)
@@ -152,12 +153,34 @@ def cmd_collect(a):
     print(f"collected {len(rows)} runs -> results/results.jsonl, results/curves.jsonl")
 
 
+def cmd_rescore(a):
+    from .rescore import rescore_run, summary_line
+    rc = 0
+    for rd in a.run_dirs:
+        rd = Path(rd)
+        try:
+            r = rescore_run(rd, a.which, a.force)
+        except Exception as e:                                   # keep going; report at the end
+            print(f"{rd.name}: FAILED {type(e).__name__}: {e}"); rc = 1
+            continue
+        print(summary_line(rd.name, r) if isinstance(r, dict) else f"{rd.name}: skipped ({r})")
+    return rc
+
+
+def _load_filtered(analysis, grids):
+    res, curves = analysis.load_results(RESULTS)
+    if grids:
+        return analysis.filter_grids(res, curves, grids)
+    print(f"pooling grids: {', '.join(analysis.pooled_grids(res))} (use --grid to restrict)", file=sys.stderr)
+    return res, curves
+
+
 def cmd_analyze(a):
     import pandas as pd
     from . import analysis
     from .runs import collect
     collect()
-    res, curves = analysis.load_results(RESULTS)
+    res, curves = _load_filtered(analysis, a.grid)
     pd.set_option("display.width", 200, "display.max_columns", 40, "display.float_format", "{:.4f}".format)
     if a.what == "baseline":
         summ = analysis.baseline_summary(res)
@@ -167,21 +190,24 @@ def cmd_analyze(a):
     elif a.what == "landmarks":
         print(analysis.landmarks(curves).to_string(index=False))
     elif a.what == "mixed":
-        for m in (a.metric or ["blimp_acc", "induction_acc", "long_range_gain", "val_loss"]):
+        for m in (a.metric or ["blimp_acc", "induction_acc", "long_range_gain", "val_loss", "val_loss_ctx_32", "context_gain"]):
             out = analysis.mixed_model(res, m)
             print(f"\n== {m}  [{out.attrs.get('method')}] {out.attrs.get('warning') or ''}")
             print(out.to_string(index=False))
     elif a.what == "dose":
         print(analysis.dose_response(res, a.metric[0] if a.metric else "blimp_acc", a.kind, a.window))
     elif a.what == "window":
-        print(analysis.predict_window_from_plasticity(curves, results_df=res))
+        p = analysis.predict_window_from_plasticity(curves, results_df=res)
+        print(analysis.format_window(p))
+        if p is not None:
+            print(p["per_run"].to_string(index=False))
 
 
 def cmd_prereg(a):
     from . import analysis
     from .runs import collect
     collect()
-    d = analysis.prereg_numbers(RESULTS)
+    d = analysis.prereg_numbers(RESULTS, grids=a.grid)
     text = analysis.render_prereg_numbers(d)
     print(text)
     if a.write:
@@ -204,12 +230,13 @@ def main():
     pa = sp.add_parser("prepare-all"); pa.add_argument("--corpus", default="babylm100m"); pa.add_argument("--variant", default="clean"); pa.add_argument("--vocab", type=int, default=8192); pa.set_defaults(f=cmd_prepare_all)
     sp.add_parser("streams").set_defaults(f=cmd_streams)
     r = sp.add_parser("run"); r.add_argument("config", nargs="?"); r.add_argument("--set", action="append", metavar="key=value"); r.add_argument("--name"); r.add_argument("--dry", action="store_true"); r.add_argument("--show", action="store_true"); r.add_argument("--no-resume", action="store_true"); r.set_defaults(f=cmd_run)
-    g = sp.add_parser("grid"); g.add_argument("grid"); g.add_argument("--dry", action="store_true"); g.set_defaults(f=cmd_grid)
+    g = sp.add_parser("grid"); g.add_argument("grid"); g.add_argument("--dry", action="store_true"); g.add_argument("--seeds", help="comma-separated train.seed values to queue, e.g. 0,1 (split a grid across machines)"); g.set_defaults(f=cmd_grid)
     q = sp.add_parser("queue"); q.add_argument("what", choices=["status", "next", "requeue-failed", "clear"]); q.set_defaults(f=cmd_queue)
     sp.add_parser("collect").set_defaults(f=cmd_collect)
+    rs = sp.add_parser("rescore", help="re-evaluate saved checkpoints with the current evals -> RUN_DIR/rescore.jsonl"); rs.add_argument("run_dirs", nargs="+", metavar="RUN_DIR"); rs.add_argument("--which", choices=["final", "ckpt"], default="final"); rs.add_argument("--force", action="store_true", help="rescore even if a line for this --which exists"); rs.set_defaults(f=cmd_rescore)
     rp = sp.add_parser("report"); rp.add_argument("--metric", action="append"); rp.set_defaults(f=cmd_report)
-    an = sp.add_parser("analyze", help="baseline | landmarks | mixed | dose | window"); an.add_argument("what", choices=["baseline", "landmarks", "mixed", "dose", "window"]); an.add_argument("--metric", action="append"); an.add_argument("--kind", default="shuffle_sentence"); an.add_argument("--window", type=parse_value, default=[0.0, 0.5]); an.set_defaults(f=cmd_analyze)
-    pr = sp.add_parser("prereg", help="numbers for docs/preregistration.md from the clean baselines"); pr.add_argument("--write", action="store_true"); pr.set_defaults(f=cmd_prereg)
+    an = sp.add_parser("analyze", help="baseline | landmarks | mixed | dose | window"); an.add_argument("what", choices=["baseline", "landmarks", "mixed", "dose", "window"]); an.add_argument("--metric", action="append"); an.add_argument("--kind", default="shuffle_sentence"); an.add_argument("--window", type=parse_value, default=[0.0, 0.5]); an.add_argument("--grid", action="append", help="restrict to this grid (repeatable)"); an.set_defaults(f=cmd_analyze)
+    pr = sp.add_parser("prereg", help="numbers for docs/preregistration.md from the clean baselines"); pr.add_argument("--write", action="store_true"); pr.add_argument("--grid", action="append", help="restrict to this grid (repeatable)"); pr.set_defaults(f=cmd_prereg)
     a = p.parse_args()
     sys.exit(a.f(a) or 0)
 

@@ -2,7 +2,7 @@
 
 Each corruption removes one kind of structure while preserving others:
   shuffle_sentence       words shuffled within each sentence  -> kills syntax, keeps lexicon + sentence-level bag of words
-  shuffle_doc_sentences  sentence order shuffled within a document -> kills discourse / long-range, keeps syntax
+  shuffle_doc_sentences  sentence order shuffled across a document (line structure kept) -> kills discourse / long-range, keeps syntax
   shuffle_window(k)      words shuffled within windows of k -> keeps local co-occurrence (k small), kills sentences
   char_noise(p)          per-character delete/substitute/swap with prob p -> attacks the lexical/tokenization layer
 `intensity` in (0, 1] is the dose: the fraction of units (sentences, documents, windows, or the per-character
@@ -38,11 +38,21 @@ def shuffle_sentence(text, rng, param=None, intensity=1.0):
 
 
 def shuffle_doc_sentences(text, rng, param=None, intensity=1.0):
+    """Shuffle sentence order across the whole document, keeping the line structure: each line gets back the
+    same number of sentences it had, so newline tokens and the within-line whitespace normalisation match
+    shuffle_sentence (which rejoins words with single spaces). Token count then tracks the clean stream."""
     if rng.random() >= intensity:
         return text
-    s = sentences(text)
-    rng.shuffle(s)
-    return " ".join(s)
+    per_line = []
+    for line in text.split("\n"):
+        per_line.append([" ".join(s.split()) for s in SENT_SPLIT.split(line.strip()) if s.strip()])
+    pool = [s for sents in per_line for s in sents]
+    rng.shuffle(pool)
+    out, k = [], 0
+    for sents in per_line:
+        out.append(" ".join(pool[k:k + len(sents)]))
+        k += len(sents)
+    return "\n".join(out)
 
 
 def shuffle_window(text, rng, param=5, intensity=1.0):

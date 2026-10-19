@@ -155,6 +155,30 @@ def test_run_all_dict_streams():
     assert "val_loss/clean" in old and "val_loss/nl" not in old
 
 
+def test_filter_grids():
+    res = pd.DataFrame({"run": ["a", "b", "c"], "run.grid": ["baselines", "smoke", "baselines"]})
+    cur = pd.DataFrame({"run": ["a", "a", "b", "c"], "step": [0, 1, 0, 0]})
+    r, c = A.filter_grids(res, cur, ["baselines"])
+    assert list(r["run"]) == ["a", "c"] and sorted(set(c["run"])) == ["a", "c"] and len(c) == 3
+    r2, c2 = A.filter_grids(res, cur, None)
+    assert len(r2) == 3 and len(c2) == 4
+
+
+def test_window_uninformative_fallback():
+    rows = []
+    for run in ("x__clean__0", "x__clean__1"):
+        for i, step in enumerate(range(0, 500, 100)):
+            rows.append(dict(run=run, step=step, frac=step / 400, tokens=step * 10,
+                             **{"plast/fisher_trace": 10.0 - i, "blimp_acc": 0.5 + 0.1 * min(i, 2),
+                                "induction_acc": 0.0, "long_range_gain": 0.0}))
+    cur = pd.DataFrame(rows)
+    out = A.predict_window_from_plasticity(cur)
+    assert out["informative"] is False
+    assert set(out["fallback"]) == {"blimp_acc", "induction_acc", "long_range_gain"}
+    assert out["fallback"]["blimp_acc"]["frac_half_mean"] == 0.5
+    assert "uninformative" in A.format_window(out)
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-q"]))

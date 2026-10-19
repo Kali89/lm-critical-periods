@@ -24,7 +24,7 @@ Pre-registration template: `docs/preregistration.md`.
 | Data | `bin/lmcp prepare-all`, `lmcp/data.py` | BabyLM-100M (CLIMB mirror, lowercased), 138M tokens; dev 13M; BLiMP 67 paradigms; official BabyLM Dutch (`babylm_nld`) as L2 (`docs/data-babylm-nl.md`); CIFAR-10 for the vision control |
 | Streams | `lmcp/tok.py` | byte-level BPE (vocab 8192) uint16 streams with a document index; one stream per corruption and dose |
 | Document order | `lmcp/train.py` `DocReader` | per-seed permutation (`data.doc_order_seed`), saved per run; readers walk shards of it; clean and corrupted streams switch on the same document |
-| Corruptions | `lmcp/corrupt.py`, `lmcp/train.py` | text: `shuffle_sentence`, `shuffle_doc_sentences`, `shuffle_window k`, `char_noise p`; training-time: `short_context block`, `label_noise p`, `vocab_permute` (predicted null). `corruption.window` = fraction range of the token budget; `corruption.intensity` = dose |
+| Corruptions | `lmcp/corrupt.py`, `lmcp/train.py` | text: `shuffle_sentence`, `shuffle_doc_sentences`, `shuffle_window k`, `char_noise p`; training-time: `short_context block`, `label_noise p`, `vocab_permute` (lexical-remapping control). `corruption.window` = fraction range of the token budget; `corruption.intensity` = dose |
 | Stream phases | `train.phases` | mixture schedule over streams, e.g. English then Dutch, for the Constantinescu replication |
 | Evals | `lmcp/evals.py`, `lmcp/stats.py` | val loss by position (long-range gain), BLiMP by linguistic term, induction copying; every metric with a 95% item-level bootstrap CI; several val streams |
 | Plasticity | `lmcp/plasticity.py` | Fisher trace (sampled and empirical), gradient and parameter norms, effective rank of residual stream and embeddings, dead-unit fraction, at every eval on a fixed probe batch |
@@ -67,7 +67,7 @@ Pre-registration template: `docs/preregistration.md`.
 - **Learning rate.** Constant (2% warmup) in critical-period arms so a deficit cannot be explained by late data
   arriving at a small learning rate. `wsd` and `cosine` exist for other uses.
 - **Controls, always.** Clean baseline; matched-clean-tokens control; late window of the same length;
-  vocabulary permutation (predicted null); extended recovery (2x clean tail); 3+ seeds, count from `prereg`.
+  vocabulary permutation (lexical-remapping control); extended recovery (2x clean tail); 3+ seeds, count from `prereg`.
 - **BLiMP is lowercased** at eval time because the CLIMB-cleaned BabyLM text is lowercased (`eval.blimp_lowercase`).
 - **Short context** is a block-diagonal attention mask over the normal 512-token sequence, so shapes never change.
 - **Vision control caveats.** Achille et al. trained 160 epochs after deficit removal; the control grid uses 60

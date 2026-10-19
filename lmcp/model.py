@@ -95,11 +95,14 @@ def n_params(model):
     return sum(p.size for _, p in tree_flatten(model.parameters()))
 
 
-def causal_mask(T, block=None):
-    """Additive (T,T) mask. block=k restricts attention to k-token blocks: the 'short context' corruption."""
+def causal_mask(T, block=None, window=None):
+    """Additive (T,T) mask. block=k restricts attention to k-token blocks: the 'short context' corruption.
+    window=k restricts attention to the k most recent tokens including self (sliding; diagnostic only)."""
     i = mx.arange(T)[:, None]
     j = mx.arange(T)[None, :]
     allowed = j <= i
     if block:
         allowed = allowed & ((i // block) == (j // block))
+    if window:
+        allowed = allowed & ((i - j) < window)
     return mx.where(allowed, mx.array(0.0), mx.array(-1e9))

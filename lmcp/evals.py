@@ -1,7 +1,21 @@
 """Per-ability probes, all cheap enough to run every few million tokens.
 
-  val_loss (+ by position bucket)  overall fit; long_range_gain = loss[0:32) - loss[128:) shows how much the
-                                   model benefits from long context
+  val_loss (+ by position bucket)  overall fit; long_range_gain = loss[0:32) - loss[128:) is DESCRIPTIVE only: it
+                                   compares different target positions (and so different tokens), so it mixes
+                                   context use with position difficulty
+  val_loss_ctx_full / _ctx_32      SAME-TARGET context measures on 48 fixed target positions per sequence (seq_len 512:
+                                   t = 128, 136, ..., 504; nll[:, t] is the loss of token x[t+1] given x[:t+1]).
+                                   L_full = nll of those targets in the ordinary full-context pass.
+                                   L_32   = nll of the same targets when the 32 preceding tokens x[t-31..t] are
+                                   re-run as a FRESH sequence starting at position 0 (plain causal mask, exactly 32
+                                   tokens of context, in-distribution start incl. the attention sink at position 0).
+                                   context_gain G = L_32 - L_full (>0: the model uses context beyond 32 tokens).
+                                   A sliding attention mask (causal_mask(window=32)) was rejected: (a) the receptive
+                                   field of a masked window grows with depth (layer L sees up to L*32 tokens), so it
+                                   is not a 32-token-context measure; (b) a window that hides position 0 removes the
+                                   attention sink, so the loss mostly measures sink reliance (seed-to-seed difference
+                                   0.0105 vs 0.0005 with the sink visible).
+                                   Cost: ~3 extra full-pass equivalents, ~15 s per eval at size m.
   blimp                            67 minimal-pair paradigms grouped into 12 linguistic terms (syntax)
   *_ci_lo/_ci_hi                   95% percentile bootstrap CIs (1000 resamples, seed 0) over sequences / minimal pairs
   induction                        random token sequence repeated twice; loss/accuracy on the second copy
@@ -19,12 +33,16 @@ from .stats import bootstrap_ci
 from .tok import EOS_ID, PAD_ID
 
 POS_BUCKETS = [(0, 32), (32, 128), (128, 10 ** 9)]
+CTX_WINDOW = 32
+CTX_STRIDE = 8
+CTX_START = POS_BUCKETS[-1][0]
+CTX_CHUNK = 2048                                              # max rows per snippet forward
 
 
-def _token_logprobs(model, x):
-    """x: (B, T) int array. Returns (B, T-1) log p(x[t+1] | x[<=t])."""
+def _token_logprobs(model, x, window=None):
+    """x: (B, T) int array. Returns (B, T-1) log p(x[t+1] | x[<=t]); window=k limits attention to the last k tokens."""
     T = x.shape[1]
-    logits = model(x[:, :-1], causal_mask(T - 1))
+    logits = model(x[:, :-1], causal_mask(T - 1, window=window))
     lp = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
     return mx.take_along_axis(lp, x[:, 1:, None], axis=-1)[..., 0]
 
@@ -36,14 +54,28 @@ def _ci_keys(out, names, cols):
         out[f"{nm}_ci_lo"], out[f"{nm}_ci_hi"] = float(lo[i]), float(hi[i])
 
 
-def val_loss(model, val_stream, seq_len, max_tokens, batch=32):
+def val_loss(model, val_stream, seq_len, max_tokens, batch=32, ctx_window=CTX_WINDOW, ctx_stride=CTX_STRIDE):
     n_seq = min(len(val_stream) // (seq_len + 1), max(1, max_tokens // seq_len))
     data = np.array(val_stream[: n_seq * (seq_len + 1)]).reshape(n_seq, seq_len + 1).astype(np.int32)
     nll = np.zeros((n_seq, seq_len))
+    targets = np.arange(CTX_START, seq_len, ctx_stride)
+    nll_w = np.full((n_seq, len(targets)), np.nan)
+    offs = np.arange(-ctx_window + 1, 2)                       # snippet = x[t-31 .. t+1]: 32 context tokens + target
     for i in range(0, n_seq, batch):
-        lp = _token_logprobs(model, mx.array(data[i:i + batch]))
+        xb = mx.array(data[i:i + batch])
+        lp = _token_logprobs(model, xb)
         mx.eval(lp)
         nll[i:i + batch] = -np.array(lp)
+        if len(targets):                                       # fresh-context pass: snippets run as their own sequences
+            nb = len(xb)
+            snip = data[i:i + nb][np.arange(nb)[:, None, None], targets[None, :, None] + offs[None, None, :]]
+            snip = snip.reshape(nb * len(targets), ctx_window + 1)
+            res = []
+            for j in range(0, len(snip), CTX_CHUNK):
+                lp = _token_logprobs(model, mx.array(snip[j:j + CTX_CHUNK]))[:, -1]
+                mx.eval(lp)
+                res.append(-np.array(lp))
+            nll_w[i:i + nb] = np.concatenate(res).reshape(nb, len(targets))
     pos_mean = nll.mean(axis=0)
     out = {"val_loss": float(pos_mean.mean())}
     names, cols = ["val_loss"], [nll.mean(axis=1)]            # per-sequence values, bootstrapped over sequences
@@ -57,6 +89,14 @@ def val_loss(model, val_stream, seq_len, max_tokens, batch=32):
     out["long_range_gain"] = out[bucket_keys[0]] - out[bucket_keys[-1]]
     names.append("long_range_gain")
     cols.append(cols[1] - cols[-1])
+    if len(targets):                                           # same targets in both measures
+        full_c, win_c = nll[:, targets].mean(axis=1), nll_w.mean(axis=1)
+    else:
+        full_c = win_c = np.full(n_seq, np.nan)
+    out["val_loss_ctx_full"], out["val_loss_ctx_32"] = float(full_c.mean()), float(win_c.mean())
+    out["context_gain"] = out["val_loss_ctx_32"] - out["val_loss_ctx_full"]
+    names += ["val_loss_ctx_full", "val_loss_ctx_32", "context_gain"]
+    cols += [full_c, win_c, win_c - full_c]
     _ci_keys(out, names, np.stack(cols, axis=1))
     return out
 

@@ -1,40 +1,63 @@
-# Pilot: does early structural corruption leave a deficit the clean tail cannot repair?
-# Removal-time sweep for two corruptions, a late window as the recency control, a vocabulary-permutation
-# predicted-null negative control, two dose levels, and matched-clean-tokens controls. Constant LR so the
-# schedule cannot explain a deficit. Seeds: start with [0,1,2]; set the final count from `bin/lmcp prereg`.
-# 'm' model (~14M params), 100M tokens (~0.75 epoch of BabyLM-100M), ~40 min per run on an M3 Max.
-# Required streams (one command each):
-#   bin/lmcp tok encode --kind shuffle_sentence
-#   bin/lmcp tok encode --kind shuffle_sentence --intensity 0.5
-#   bin/lmcp tok encode --kind shuffle_sentence --intensity 0.25
+# Pilot (confirmatory): does early structural corruption leave a deficit the clean tail cannot repair, and is
+# the deficit specific to the structure removed?
+# Operating point from the baseline ladder (docs/baseline-readout-2026-10-17.md): size m, 600M tokens
+# (4.3 epochs of the 138M-token BabyLM-100M stream), constant LR 3e-4 with a 12M-token warmup, ~3.9 h per run
+# on an M3 Max. Windows are placed from the clean emergence curves: local syntax (BLiMP) and context use form
+# in the first ~50M tokens (0-0.083), induction forms in 50-200M (0.083-0.333); all have plateaued by ~400M.
+#   early      [0, 0.083]      50M corrupted  -> recency pair: late-short
+#   early-long [0, 0.333]     200M corrupted  -> the registered primary window (all three corruption kinds)
+#   mid        [0.083, 0.333] 150M corrupted  -> induction-formation window; recency pair: late
+#   late       [0.5, 0.75]    150M corrupted  -> same length as mid, abilities already formed
+#   late-short [0.5, 0.583]    50M corrupted  -> same length as early
+# Mechanism-mapped endpoints (registered before the baselines were rescored, docs/preregistration.md):
+#   shuffle_sentence       words shuffled within sentences   -> local loss (32-token context), BLiMP as support
+#   shuffle_doc_sentences  sentence order shuffled, syntax kept -> context gain (32-token vs full context)
+#   short_context          32-token attention blocks in training -> context gain
+#   vocab_permute          lexical-remapping control (structure kept, token identity scrambled)
+# No-exposure reference is free: with a constant LR and per-seed document order, the clean run's own eval at
+# (1-w)*600M tokens is a clean run of that length, so eval.blimp_per_paradigm is the full 1000 pairs at every
+# eval. The same argument makes the 1.0B clean runs the 600M clean reference at their 600M eval: warmup is
+# held at 12M tokens (0.012 x 1.0B = 0.02 x 600M), so the first 600M are identical step for step.
+# Extended recovery: the first 200M shuffled then 800M clean (2x the standard 400M), compared with the clean
+# 1.0B reference at the same endpoint and along the trajectory, decides "persistent" vs "recovering".
+# Seeds: 4 per corrupted cell, 6 for the shared clean reference (power table in the readout).
+# 50 runs: 40 x 3.9 h + 10 x 6.5 h = ~221 machine-hours.
+# Required streams: train.shuffle_sentence, train.shuffle_sentence@0.5, train.shuffle_doc_sentences.
 # Pre-registration: docs/preregistration.md must be filled and committed before this grid is queued.
 name: pilot
 overrides:
   model.size: m
   train.lr: 3.0e-4   # from lr_sweep 2026-10-16 (best val loss at m)
-  train.tokens: 100_000_000
+  train.tokens: 600_000_000
   train.schedule: const
-  eval.every_tokens: 5_000_000
+  train.warmup_frac: 0.02          # 12M tokens
+  eval.every_tokens: 25_000_000
+  eval.blimp_per_paradigm: 1000
+  checkpoint.every_tokens: 100_000_000
 axes:
   corruption:
-    - {kind: clean}
-    - {kind: shuffle_sentence, window: [0.0, 0.1]}
-    - {kind: shuffle_sentence, window: [0.0, 0.25]}
-    - {kind: shuffle_sentence, window: [0.0, 0.5]}
-    - {kind: shuffle_sentence, window: [0.5, 0.75]}                 # same-length window, late onset: recency control
-    - {kind: shuffle_sentence, window: [0.0, 0.5], intensity: 0.5}  # dose response
-    - {kind: shuffle_sentence, window: [0.0, 0.5], intensity: 0.25}
-    - {kind: short_context, param: 32, window: [0.0, 0.25]}
-    - {kind: short_context, param: 32, window: [0.0, 0.5]}
-    - {kind: short_context, param: 32, window: [0.5, 0.75]}
-    - {kind: vocab_permute, window: [0.0, 0.5]}                     # predicted null (Achille's label permutation)
-  train.seed: [0, 1, 2]
+    - {kind: shuffle_sentence, window: [0.0, 0.0833]}                  # early
+    - {kind: shuffle_sentence, window: [0.0, 0.3333]}                  # early-long (primary window)
+    - {kind: shuffle_sentence, window: [0.0833, 0.3333]}               # mid (induction formation)
+    - {kind: shuffle_sentence, window: [0.5, 0.75]}                    # late, same length as mid
+    - {kind: shuffle_sentence, window: [0.5, 0.5833]}                  # late-short, same length as early
+    - {kind: shuffle_sentence, window: [0.0, 0.3333], intensity: 0.5}  # dose response (0.5 vs 1.0 vs clean)
+    - {kind: shuffle_doc_sentences, window: [0.0, 0.3333]}             # sentence order: long-range structure removed, syntax kept
+    - {kind: short_context, param: 32, window: [0.0, 0.3333]}          # attention-side long-range removal
+    - {kind: short_context, param: 32, window: [0.5, 0.75]}            # its late pair
+    - {kind: vocab_permute, window: [0.0, 0.3333]}                     # lexical-remapping control
+  train.seed: [0, 1, 2, 3]
 extra_runs:
-  # matched-clean-tokens controls: clean runs with only the tokens the 0-0.5 arms saw clean
-  - {corruption: {kind: clean}, train.tokens: 50_000_000, train.seed: 0}
-  - {corruption: {kind: clean}, train.tokens: 50_000_000, train.seed: 1}
-  - {corruption: {kind: clean}, train.tokens: 50_000_000, train.seed: 2}
-  # extended recovery: same corrupted window in absolute tokens (first 50M), then 150M clean instead of 50M
-  - {corruption: {kind: shuffle_sentence, window: [0.0, 0.25]}, train.tokens: 200_000_000, train.seed: 0}
-  - {corruption: {kind: shuffle_sentence, window: [0.0, 0.25]}, train.tokens: 200_000_000, train.seed: 1}
-  - {corruption: {kind: shuffle_sentence, window: [0.0, 0.25]}, train.tokens: 200_000_000, train.seed: 2}
+  # shared clean reference, 6 seeds, run to 1.0B: the 600M eval is the 600M reference, the 1.0B eval is the
+  # extended-recovery reference. Warmup held at 12M tokens.
+  - {corruption: {kind: clean}, train.tokens: 1_000_000_000, train.warmup_frac: 0.012, train.seed: 0}
+  - {corruption: {kind: clean}, train.tokens: 1_000_000_000, train.warmup_frac: 0.012, train.seed: 1}
+  - {corruption: {kind: clean}, train.tokens: 1_000_000_000, train.warmup_frac: 0.012, train.seed: 2}
+  - {corruption: {kind: clean}, train.tokens: 1_000_000_000, train.warmup_frac: 0.012, train.seed: 3}
+  - {corruption: {kind: clean}, train.tokens: 1_000_000_000, train.warmup_frac: 0.012, train.seed: 4}
+  - {corruption: {kind: clean}, train.tokens: 1_000_000_000, train.warmup_frac: 0.012, train.seed: 5}
+  # extended recovery: first 200M shuffled (window [0, 0.2] of 1.0B), then 800M clean; same 12M warmup
+  - {corruption: {kind: shuffle_sentence, window: [0.0, 0.2]}, train.tokens: 1_000_000_000, train.warmup_frac: 0.012, train.seed: 0}
+  - {corruption: {kind: shuffle_sentence, window: [0.0, 0.2]}, train.tokens: 1_000_000_000, train.warmup_frac: 0.012, train.seed: 1}
+  - {corruption: {kind: shuffle_sentence, window: [0.0, 0.2]}, train.tokens: 1_000_000_000, train.warmup_frac: 0.012, train.seed: 2}
+  - {corruption: {kind: shuffle_sentence, window: [0.0, 0.2]}, train.tokens: 1_000_000_000, train.warmup_frac: 0.012, train.seed: 3}
